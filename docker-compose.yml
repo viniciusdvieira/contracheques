@@ -1,0 +1,13 @@
+services:
+  pg:
+    image: postgres:15
+    container_name: contracheque-db
+    environment:
+      POSTGRES_DB: contracheque_db
+      POSTGRES_USER: contracheque_admin
+      POSTGRES_PASSWORD: admin_pass_alterar
+    ports:
+      - "5432:5432"   # se já usa 5432, troque p/ "5433:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    restart: unless-stopped

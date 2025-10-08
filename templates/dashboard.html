@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Servidor: {{ nome }} (Matrícula: {{ matricula }})</h2>
+
+{% if payslips %}
+<table class="table">
+  <thead>
+    <tr>
+      <th>Referência</th>
+      <th>Ações</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for p in payslips %}
+    <tr>
+      <td>{{ p.referencia }}</td>
+      <td>
+        <a href="{{ url_for('view_pdf', path=p.abs_path) }}" target="_blank">Visualizar</a> |
+        <a href="{{ url_for('download_pdf', path=p.abs_path) }}">Baixar</a>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>Não há contracheques disponíveis.</p>
+{% endif %}
+{% endblock %}
