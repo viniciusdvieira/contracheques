@@ -1,6 +1,7 @@
 import os
+import sqlite3
+
 import bcrypt
-import psycopg2
 from flask import (
     Flask, render_template, request, redirect, url_for,
     session, send_file, abort, flash
@@ -13,10 +14,25 @@ from dotenv import load_dotenv; load_dotenv()
 # CONFIGURAÇÕES
 # =========================
 # Pegue do ambiente (recomendado) ou use valor padrão local
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://contracheque_app:app_pass_alterar@localhost:5432/contracheque_db"
-)
+def _resolve_sqlite_target(raw: str):
+    """Converte DATABASE_URL em um caminho aceitável pelo sqlite3."""
+    if not raw:
+        raw = os.path.abspath("contracheques.db")
+
+    if raw.startswith("sqlite:///"):
+        raw = raw.replace("sqlite:///", "", 1)
+
+    if raw.startswith("file:"):
+        return raw, True
+
+    if not os.path.isabs(raw):
+        raw = os.path.abspath(raw)
+
+    return raw, False
+
+
+DATABASE_URL = os.getenv("DATABASE_URL", os.path.abspath("contracheques.db"))
+DATABASE_PATH, DATABASE_IS_URI = _resolve_sqlite_target(DATABASE_URL)
 SECRET_KEY = os.getenv("SECRET_KEY", "troque-esta-secret-key-em-producao")
 # Pasta onde os PDFs foram gerados pelo seu script
 STORAGE_DIR = os.getenv("STORAGE_DIR", os.path.abspath("contracheques_split"))
@@ -49,7 +65,15 @@ def build_matricula_candidates(user_input: str):
 
 def get_db():
     # Uma conexão por request é suficiente aqui (simples)
-    return psycopg2.connect(DATABASE_URL)
+    conn = sqlite3.connect(
+        DATABASE_PATH,
+        detect_types=sqlite3.PARSE_DECLTYPES,
+        uri=DATABASE_IS_URI,
+        check_same_thread=False,
+    )
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
 
 # =========================
 # BCRYPT HELPERS
@@ -102,15 +126,14 @@ def login():
         conn = get_db()
         cur = conn.cursor()
         # Tenta casar com qualquer um dos candidatos
-        cur.execute(
-            """
+        placeholders = ",".join(["?"] * len(candidates))
+        query = f"""
             SELECT id, matricula, password_hash, must_change_password, COALESCE(nome, '') AS nome
             FROM users
-            WHERE matricula = ANY(%s)
+            WHERE matricula IN ({placeholders})
             LIMIT 1
-            """,
-            (candidates,)
-        )
+        """
+        cur.execute(query, candidates)
         row = cur.fetchone()
         cur.close()
         conn.close()
@@ -155,7 +178,7 @@ def change_password():
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
-            "UPDATE users SET password_hash=%s, must_change_password=false WHERE id=%s",
+            "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
             (new_hash, current_user_id())
         )
         conn.commit()
@@ -175,13 +198,18 @@ def dashboard():
     cur = conn.cursor()
 
     # pega nome e matrícula (exibir no topo)
-    cur.execute("SELECT matricula, COALESCE(nome,'') FROM users WHERE id=%s", (uid,))
+    cur.execute("SELECT matricula, COALESCE(nome,'') FROM users WHERE id=?", (uid,))
     row = cur.fetchone()
     matricula = row[0] if row else ""
     nome = row[1] or "Nome não cadastrado"
 
     cur.execute(
-        "SELECT referencia, file_path FROM payslips WHERE user_id=%s ORDER BY referencia DESC NULLS LAST, id DESC",
+        """
+        SELECT referencia, file_path
+        FROM payslips
+        WHERE user_id=?
+        ORDER BY referencia IS NULL, referencia DESC, id DESC
+        """,
         (uid,)
     )
     payslips = cur.fetchall()
@@ -212,7 +240,7 @@ def _user_owns_path(user_id: int, abs_path: str) -> bool:
     # Descobre a matrícula do usuário
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT matricula FROM users WHERE id=%s", (user_id,))
+    cur.execute("SELECT matricula FROM users WHERE id=?", (user_id,))
     row = cur.fetchone()
     cur.close()
     conn.close()

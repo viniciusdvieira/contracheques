@@ -1,8 +1,28 @@
+import os
 import re
-import psycopg2
-import bcrypt
+import sqlite3
 
-DB_DSN = "postgresql://contracheque_admin:admin_pass_alterar@localhost:5432/contracheque_db"
+import bcrypt
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DB_TARGET = os.getenv("DATABASE_URL", os.path.abspath("contracheques.db"))
+
+
+def _resolve_sqlite_target(raw: str):
+    if not raw:
+        raw = os.path.abspath("contracheques.db")
+    if raw.startswith("sqlite:///"):
+        raw = raw.replace("sqlite:///", "", 1)
+    if raw.startswith("file:"):
+        return raw, True
+    if not os.path.isabs(raw):
+        raw = os.path.abspath(raw)
+    return raw, False
+
+
+DB_PATH, DB_URI = _resolve_sqlite_target(DB_TARGET)
 
 def hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode("utf-8")[:72], bcrypt.gensalt()).decode("utf-8")
@@ -15,7 +35,8 @@ def strip_leading_zeros(matricula: str) -> str:
     return s if s else "0"
 
 def main():
-    conn = psycopg2.connect(DB_DSN)
+    conn = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES, uri=DB_URI)
+    conn.execute("PRAGMA foreign_keys = ON;")
     cur = conn.cursor()
     cur.execute("SELECT id, matricula FROM users ORDER BY id;")
     rows = cur.fetchall()
@@ -26,7 +47,7 @@ def main():
         nova_senha = f"agespisa{nova_mat}"
         hash_ = hash_password(nova_senha)
         cur.execute(
-            "UPDATE users SET password_hash=%s, must_change_password=true WHERE id=%s;",
+            "UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?;",
             (hash_, uid)
         )
         total += 1
