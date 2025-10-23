@@ -1,14 +1,18 @@
 # extract_pages_simple.py
 import os, re, sys
+import sqlite3
+
 import pdfplumber
 from PyPDF2 import PdfReader, PdfWriter
-import psycopg2
 from passlib.hash import bcrypt
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # === CONFIG ===
 PDF_PATH   = r"contracheques_allago.pdf"   # <- aponte para o seu PDF geral
 OUTPUT_DIR = r"contracheques_split"
-DB_DSN     = "postgresql://contracheque_app:app_pass_alterar@localhost:5432/contracheque_db"
+DB_TARGET  = os.getenv("DATABASE_URL", os.path.abspath("contracheques.db"))
 
 # Se todos são de setembro/2025, pode fixar aqui:
 REF_OVERRIDE = "2025-08"  # ou None para auto-detectar
@@ -41,18 +45,33 @@ def detect_matricula(text: str):
     m = re.search(r"\b(\d{7})\b", text or "")
     return m.group(1) if m else None
 
+def _resolve_sqlite_target(raw: str):
+    if not raw:
+        raw = os.path.abspath("contracheques.db")
+    if raw.startswith("sqlite:///"):
+        raw = raw.replace("sqlite:///", "", 1)
+    if raw.startswith("file:"):
+        return raw, True
+    if not os.path.isabs(raw):
+        raw = os.path.abspath(raw)
+    return raw, False
+
+
+DB_PATH, DB_URI = _resolve_sqlite_target(DB_TARGET)
+
+
 def upsert_user(cur, matricula, nome=None):
-    cur.execute("SELECT id FROM users WHERE matricula=%s", (matricula,))
+    cur.execute("SELECT id FROM users WHERE matricula=?", (matricula,))
     r = cur.fetchone()
-    if r: 
+    if r:
         return r[0]
     password_hash = bcrypt.hash(f"agespisa{matricula}")
     cur.execute(
         "INSERT INTO users (matricula, nome, password_hash, must_change_password) "
-        "VALUES (%s,%s,%s,TRUE) RETURNING id",
+        "VALUES (?,?,?,1)",
         (matricula, nome, password_hash),
     )
-    return cur.fetchone()[0]
+    return cur.lastrowid
 
 def write_single_page(reader, page_idx, out_file):
     w = PdfWriter()
@@ -68,8 +87,8 @@ def main():
 
     reader = PdfReader(PDF_PATH)
     with pdfplumber.open(PDF_PATH) as pdf:
-        conn = psycopg2.connect(DB_DSN)
-        conn.autocommit = False
+        conn = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES, uri=DB_URI)
+        conn.execute("PRAGMA foreign_keys = ON;")
         cur = conn.cursor()
 
         total = len(pdf.pages)
@@ -93,8 +112,8 @@ def main():
             uid = upsert_user(cur, matricula, nome=None)
             cur.execute(
                 "INSERT INTO payslips (user_id, referencia, file_path) "
-                "VALUES (%s,%s,%s) "
-                "ON CONFLICT (user_id, referencia) DO UPDATE SET file_path=EXCLUDED.file_path",
+                "VALUES (?,?,?) "
+                "ON CONFLICT(user_id, referencia) DO UPDATE SET file_path=excluded.file_path",
                 (uid, referencia, out_file)
             )
             ok += 1
