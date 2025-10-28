@@ -9,7 +9,7 @@ from openpyxl import load_workbook  # <- para ler a planilha de nomes
 PDF_PATH    = r"contracheques_allago.pdf"     # <- aponte para o seu PDF geral
 OUTPUT_DIR  = r"contracheques_split"
 DB_PATH     = r"contracheque.db"           # <- arquivo SQLite local
-NAMES_XLSX  = r"nomematri.xlsx"           # <- A: Matricula, B: Nome, linha 1 = títulos
+NAMES_XLSX  = r"servidores.xlsx"           # <- A: Matricula, B: Nome, linha 1 = títulos
 
 # Se todos são de setembro/2025, pode fixar aqui (ou None para auto)
 REF_OVERRIDE = "2025-08"  # ex.: "2025-09" ou None
