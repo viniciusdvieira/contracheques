@@ -1,6 +1,8 @@
+# app_sqlite.py
 import os
 import bcrypt
 import sqlite3
+from pathlib import Path
 from flask import (
     Flask, render_template, request, redirect, url_for,
     session, send_file, abort, flash
@@ -13,7 +15,6 @@ from dotenv import load_dotenv; load_dotenv()
 # =========================
 DB_PATH = os.getenv("DB_PATH", os.path.abspath("contracheque.db"))
 SECRET_KEY = os.getenv("SECRET_KEY", "troque-esta-secret-key-em-producao")
-# Pasta onde os PDFs foram gerados pelo seu script
 STORAGE_DIR = os.getenv("STORAGE_DIR", os.path.abspath("contracheques_split"))
 
 # =========================
@@ -48,10 +49,8 @@ CREATE TABLE IF NOT EXISTS payslips (
 """
 
 def get_db():
-    # Uma conexão por request é suficiente aqui (app simples)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    # Garantias e performance
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
@@ -66,32 +65,21 @@ def init_db():
     finally:
         conn.close()
 
-
 # =========================
 # HELPERS
 # =========================
 def build_matricula_candidates(user_input: str):
-    """
-    Gera candidatos para buscar no DB:
-      - exatamente o que o usuário digitou (pode ser '00', '1234-5', etc.)
-      - só dígitos
-      - dígitos zero-padded para 6, 7 e 8 posições (cobre padrões de PDFs)
-    """
     s = (user_input or "").strip()
-    cands = {s}  # tenta exatamente como foi digitado (ex.: '00')
+    cands = {s}
     digits = "".join(ch for ch in s if ch.isdigit())
     if digits:
-        cands.add(digits)  # ex.: '12345'
+        cands.add(digits)
         for width in (6, 7, 8):
             if len(digits) < width:
-                cands.add(digits.zfill(width))  # ex.: '00012345'
+                cands.add(digits.zfill(width))
     return list(cands)
 
-# =========================
-# BCRYPT
-# =========================
 def hash_password(plain: str) -> str:
-    # bcrypt limita a 72 bytes
     return bcrypt.hashpw(plain.encode("utf-8")[:72], bcrypt.gensalt()).decode("utf-8")
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -99,6 +87,17 @@ def verify_password(plain: str, hashed: str) -> bool:
         return bcrypt.checkpw(plain.encode("utf-8")[:72], hashed.encode("utf-8"))
     except Exception:
         return False
+
+def _normalize_to_abs(p: str) -> str:
+    """
+    Normaliza separadores vindos do Windows, resolve .. e retorna caminho absoluto.
+    Aceita caminhos relativos gravados no DB.
+    """
+    p = (p or "").replace("\\", "/")
+    P = Path(p)
+    if not P.is_absolute():
+        P = Path(os.getcwd()) / P
+    return str(P.resolve())
 
 # =========================
 # AUTH HELPERS
@@ -213,16 +212,11 @@ def dashboard():
     conn = get_db()
     cur = conn.cursor()
 
-    # pega nome e matrícula (exibir no topo)
     cur.execute("SELECT matricula, COALESCE(nome,'') FROM users WHERE id=?", (uid,))
     row = cur.fetchone()
     matricula = row[0] if row else ""
     nome = row[1] or "Nome não cadastrado"
 
-    # Em SQLite não há NULLS LAST. Estratégia:
-    # 1) ordenar por (referencia IS NULL) ASC (False=0 vem antes de True=1)
-    # 2) depois por referencia DESC
-    # 3) fallback por id DESC
     cur.execute(
         """
         SELECT referencia, file_path
@@ -238,8 +232,7 @@ def dashboard():
 
     normalized = []
     for ref, file_path in payslips:
-        abs_path = os.path.abspath(file_path) if os.path.isabs(file_path) \
-                   else os.path.abspath(os.path.join(os.getcwd(), file_path))
+        abs_path = _normalize_to_abs(file_path)
         normalized.append({
             "referencia": ref or "sem-ref",
             "abs_path": abs_path
@@ -253,32 +246,43 @@ def dashboard():
 def _user_owns_path(user_id: int, abs_path: str) -> bool:
     """
     Valida se o arquivo solicitado pertence ao usuário logado.
-    Regra: o path do arquivo deve estar dentro de STORAGE_DIR/<matricula>/
+    Regras:
+      1) Caminho normalizado, absoluto e existente
+      2) Debaixo de STORAGE_DIR/<matricula>/
     """
+    # matrícula do usuário
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT matricula FROM users WHERE id=?", (user_id,))
     row = cur.fetchone()
-    cur.close()
-    conn.close()
+    cur.close(); conn.close()
     if not row:
         return False
-    matricula = row[0]
+    matricula = str(row[0])
 
-    user_base = os.path.join(STORAGE_DIR, str(matricula))
-    user_base = os.path.abspath(user_base)
+    # base do usuário e alvo normalizados
+    base = (Path(STORAGE_DIR) / matricula).resolve()
     try:
-        target = os.path.abspath(abs_path)
+        target = Path((abs_path or "").replace("\\", "/")).resolve()
     except Exception:
         return False
 
-    # dentro da pasta do usuário + arquivo existe
-    return os.path.commonpath([target, user_base]) == user_base and os.path.exists(target)
+    if not target.is_file():
+        return False
+
+    # garante que target está dentro de base (sem traversal)
+    try:
+        target.relative_to(base)
+    except ValueError:
+        return False
+
+    return True
 
 @app.route("/view")
 @login_required
 def view_pdf():
     abs_path = request.args.get("path", "")
+    abs_path = _normalize_to_abs(abs_path)
     if not _user_owns_path(current_user_id(), abs_path):
         abort(403)
     return send_file(abs_path, mimetype="application/pdf", as_attachment=False,
@@ -288,6 +292,7 @@ def view_pdf():
 @login_required
 def download_pdf():
     abs_path = request.args.get("path", "")
+    abs_path = _normalize_to_abs(abs_path)
     if not _user_owns_path(current_user_id(), abs_path):
         abort(403)
     return send_file(abs_path, mimetype="application/pdf", as_attachment=True,
@@ -297,7 +302,6 @@ def download_pdf():
 # MAIN
 # =========================
 if __name__ == "__main__":
-    # debug local
     init_db()
     os.makedirs(STORAGE_DIR, exist_ok=True)
     app.run(host="0.0.0.0", port=5000, debug=True)
