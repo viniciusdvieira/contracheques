@@ -1,8 +1,10 @@
+import os
 import re
-import psycopg2
+import sqlite3
 import bcrypt
 
-DB_DSN = "postgresql://contracheque_admin:admin_pass_alterar@localhost:5432/contracheque_db"
+# Caminho do banco SQLite (mesmo do app)
+DB_PATH = os.getenv("DB_PATH", os.path.abspath("contracheque.db"))
 
 def hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode("utf-8")[:72], bcrypt.gensalt()).decode("utf-8")
@@ -15,8 +17,14 @@ def strip_leading_zeros(matricula: str) -> str:
     return s if s else "0"
 
 def main():
-    conn = psycopg2.connect(DB_DSN)
+    if not os.path.exists(DB_PATH):
+        print(f"❌ Banco de dados não encontrado: {DB_PATH}")
+        return
+
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+
+    # busca todos os usuários
     cur.execute("SELECT id, matricula FROM users ORDER BY id;")
     rows = cur.fetchall()
 
@@ -25,16 +33,18 @@ def main():
         nova_mat = strip_leading_zeros(re.sub(r"\D", "", matricula)) or matricula
         nova_senha = f"agespisa{nova_mat}"
         hash_ = hash_password(nova_senha)
+
         cur.execute(
-            "UPDATE users SET password_hash=%s, must_change_password=true WHERE id=%s;",
+            "UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?;",
             (hash_, uid)
         )
         total += 1
-        print(f"Atualizado ID={uid} | Matricula={matricula} -> Senha: agespisa{nova_mat}")
+        print(f"Atualizado ID={uid} | Matrícula={matricula} -> Senha: agespisa{nova_mat}")
 
     conn.commit()
     cur.close()
     conn.close()
+
     print(f"\n✅ Total de {total} senhas reinicializadas com sucesso.")
 
 if __name__ == "__main__":
