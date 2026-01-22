@@ -6,13 +6,13 @@ from passlib.hash import bcrypt
 from openpyxl import load_workbook  # <- para ler a planilha de nomes
 
 # === CONFIG ===
-PDF_PATH    = r"contracheques_allout.pdf"     # <- aponte para o seu PDF geral
+PDF_PATH    = r"contracheques_alldez.pdf"     # <- aponte para o seu PDF geral
 OUTPUT_DIR  = r"contracheques_split"
 DB_PATH     = r"contracheque.db"           # <- arquivo SQLite local
 NAMES_XLSX  = r"servidores.xlsx"           # <- A: Matricula, B: Nome, linha 1 = títulos
 
 # Se todos são de setembro/2025, pode fixar aqui (ou None para auto)
-REF_OVERRIDE = "2025-10"  # ex.: "2025-09" ou None
+REF_OVERRIDE = "2025-12"  # ex.: "2025-09" ou None
 
 # Auto-detecção "SETEMBRO/2025" -> "2025-09"
 MESES = {"JANEIRO":"01","FEVEREIRO":"02","MARCO":"03","MARÇO":"03","ABRIL":"04","MAIO":"05",
