@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="card-elevated dashboard-card">
-  <h2 class="page-title">Servidor: {{ nome }} (MatrÃ­cula: {{ matricula }})</h2>
+  <h2 class="page-title">Servidor: {{ nome }} (Matrícula: {{ matricula }})</h2>
 
   {% if payslips %}
   <table class="table">
     <thead>
       <tr>
-        <th>ReferÃªncia</th>
-        <th>AÃ§Ãµes</th>
+        <th>Referência</th>
+        <th>Contracheques</th>
       </tr>
     </thead>
     <tbody>
@@ -16,15 +16,15 @@
       <tr class="payslip-row">
         <td>{{ p.referencia }}</td>
         <td class="action-links">
-          <a href="{{ url_for('view_pdf', path=p.abs_path) }}" target="_blank">Visualizar</a>
-          <a href="{{ url_for('download_pdf', path=p.abs_path) }}">Baixar</a>
+          <a href="{{ url_for('view_pdf', path=p.abs_path, pid=p.id) }}" target="_blank">Visualizar</a>
+          <a href="{{ url_for('download_pdf', path=p.abs_path, pid=p.id) }}">Baixar</a>
         </td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <div class="empty-state">NÃ£o hÃ¡ contracheques disponÃ­veis.</div>
+  <div class="empty-state">Não há contracheques disponíveis.</div>
   {% endif %}
 </section>
 {% endblock %}

@@ -22,6 +22,9 @@
       {% if session.user_id %}
       <nav class="nav-actions">
         <a class="nav-link" href="{{ url_for('dashboard') }}">Meus contracheques</a>
+        {% if session.get("is_admin") %}
+        <a class="nav-link" href="{{ url_for('admin') }}">Administração</a>
+        {% endif %}
         <a class="nav-link" href="{{ url_for('change_password') }}">Alterar senha</a>
         <a class="nav-link" href="{{ url_for('logout') }}">Sair</a>
       </nav>
