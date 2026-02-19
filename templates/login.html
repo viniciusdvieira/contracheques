@@ -1,23 +1,29 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Acesso</h2>
-<form method="post" class="form">
-  <label>Matrícula</label>
-  <input type="text" name="matricula" placeholder="ex.: 1234-5 ou 00" required>
+<section class="login-card card-elevated">
+  <h2 class="page-title">Acesso</h2>
+  <form method="post" class="form">
+    <div class="field">
+      <label for="matricula">MatrÃ­cula</label>
+      <input id="matricula" type="text" name="matricula" placeholder="ex.: 1234-5 ou 00" required>
+    </div>
 
-  <label>Senha</label>
-  <div style="display:flex; gap:8px; align-items:center;">
-    <input id="pwd" type="password" name="senha" placeholder="sua senha" required style="flex:1;">
-    <label style="display:flex; align-items:center; gap:4px; font-size:14px;">
-      <input type="checkbox" onclick="togglePwd('pwd')">
-      Mostrar
-    </label>
-  </div>
+    <div class="field">
+      <label for="pwd">Senha</label>
+      <div class="field-inline">
+        <input id="pwd" type="password" name="senha" placeholder="sua senha" required>
+        <label class="toggle">
+          <input type="checkbox" onclick="togglePwd('pwd')">
+          Mostrar
+        </label>
+      </div>
+    </div>
 
-  <button type="submit">Entrar</button>
-</form>
+    <button type="submit" class="btn btn-primary">Entrar</button>
+  </form>
 
-<p class="hint">Primeiro acesso? Sua senha inicial é <code>agespisa{matrícula}</code> (ex.: <code>agespisa12345</code> ou <code>agespisa00</code>). Você terá que alterá-la no primeiro login.</p>
+  <p class="hint">Primeiro acesso? Sua senha inicial Ã© <code>agespisa{matrÃ­cula}</code> (ex.: <code>agespisa12345</code> ou <code>agespisa00</code>). VocÃª terÃ¡ que alterÃ¡-la no primeiro login.</p>
+</section>
 
 <script>
 function togglePwd(id){

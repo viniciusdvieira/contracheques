@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Corporate Navy & Gold Theme */
+    --background: 210 20% 98%;
+    --foreground: 220 30% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 30% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 30% 12%;
+
+    /* Navy primary */
+    --primary: 220 55% 22%;
+    --primary-foreground: 0 0% 98%;
+
+    /* Gold accent */
+    --gold: 42 85% 48%;
+    --gold-light: 42 90% 62%;
+    --gold-foreground: 220 55% 15%;
+
+    --secondary: 210 30% 94%;
+    --secondary-foreground: 220 40% 20%;
+
+    --muted: 210 25% 92%;
+    --muted-foreground: 215 20% 50%;
+
+    --accent: 210 30% 90%;
+    --accent-foreground: 220 40% 20%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+
+    --success: 142 71% 38%;
+    --success-foreground: 0 0% 98%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 220 30% 12%;
+
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 220 55% 22%;
+
+    --radius: 0.5rem;
+
+    /* Sidebar */
+    --sidebar-background: 220 55% 18%;
+    --sidebar-foreground: 210 30% 92%;
+    --sidebar-primary: 42 85% 48%;
+    --sidebar-primary-foreground: 220 55% 15%;
+    --sidebar-accent: 220 50% 24%;
+    --sidebar-accent-foreground: 210 30% 92%;
+    --sidebar-border: 220 45% 25%;
+    --sidebar-ring: 42 85% 48%;
+
+    /* Gradients */
+    --gradient-hero: linear-gradient(135deg, hsl(220 55% 18%) 0%, hsl(220 55% 28%) 100%);
+    --gradient-gold: linear-gradient(135deg, hsl(42 85% 45%) 0%, hsl(42 90% 58%) 100%);
+    --gradient-card: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(210 25% 98%) 100%);
+
+    /* Shadows */
+    --shadow-card: 0 2px 12px -2px hsl(220 55% 22% / 0.08), 0 1px 4px -1px hsl(220 55% 22% / 0.06);
+    --shadow-nav: 0 4px 20px -4px hsl(220 55% 18% / 0.35);
+    --shadow-gold: 0 4px 16px -4px hsl(42 85% 48% / 0.4);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer components {
+  .nav-sidebar {
+    background: var(--gradient-hero);
+    box-shadow: var(--shadow-nav);
+  }
+
+  .card-elevated {
+    background: var(--gradient-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .badge-gold {
+    background: var(--gradient-gold);
+    color: hsl(var(--gold-foreground));
+  }
+
+  .login-card {
+    background: hsl(var(--card));
+    box-shadow: 0 8px 40px -8px hsl(220 55% 22% / 0.18), 0 2px 8px -2px hsl(220 55% 22% / 0.1);
+    border: 1px solid hsl(var(--border));
+  }
+
+  .status-issued {
+    background: hsl(var(--success) / 0.12);
+    color: hsl(var(--success));
+    border: 1px solid hsl(var(--success) / 0.25);
+  }
+
+  .status-pending {
+    background: hsl(var(--warning) / 0.12);
+    color: hsl(38 80% 35%);
+    border: 1px solid hsl(var(--warning) / 0.3);
+  }
+
+  .payslip-row {
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .payslip-row:hover {
+    background: hsl(var(--muted) / 0.6);
+  }
+}

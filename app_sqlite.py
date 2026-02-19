@@ -1,14 +1,4 @@
 # app_sqlite.py
-import os
-import bcrypt
-import sqlite3
-from pathlib import Path
-from flask import (
-    Flask, render_template, request, redirect, url_for,
-    session, send_file, abort, flash
-)
-from werkzeug.middleware.proxy_fix import ProxyFix
-from dotenv import load_dotenv; load_dotenv()
 
 # =========================
 # CONFIGURAÇÕES
