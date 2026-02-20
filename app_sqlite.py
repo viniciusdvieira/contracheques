@@ -240,6 +240,7 @@ def login():
                        COALESCE(is_admin, 0) AS is_admin
                 FROM users
                 WHERE matricula IN ({placeholders})
+                ORDER BY LENGTH(matricula) DESC
                 LIMIT 1
                 """,
                 candidates
@@ -356,12 +357,9 @@ def admin():
 
 def _user_owns_path(user_id: int, abs_path: str) -> bool:
     """
-    Valida se o arquivo solicitado pertence ao usuário logado.
-    Regras:
-      1) Caminho normalizado, absoluto e existente
-      2) Debaixo de STORAGE_DIR/<matricula>/
+    Valida se o arquivo pertence ao usuário logado.
+    Agora aceita pastas de matrícula com e sem zero à esquerda (ex.: 10143 e 0010143).
     """
-    # matrícula do usuário
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT matricula FROM users WHERE id=?", (user_id,))
@@ -369,10 +367,11 @@ def _user_owns_path(user_id: int, abs_path: str) -> bool:
     cur.close(); conn.close()
     if not row:
         return False
-    matricula = str(row[0])
 
-    # base do usuário e alvo normalizados
-    base = (Path(STORAGE_DIR) / matricula).resolve()
+    matricula = str(row[0] or "").strip()
+    if not matricula:
+        return False
+
     try:
         target = Path((abs_path or "").replace("\\", "/")).resolve()
     except Exception:
@@ -381,13 +380,29 @@ def _user_owns_path(user_id: int, abs_path: str) -> bool:
     if not target.is_file():
         return False
 
-    # garante que target está dentro de base (sem traversal)
-    try:
-        target.relative_to(base)
-    except ValueError:
-        return False
+    # candidatos de pasta (matrícula e variações)
+    candidates = build_matricula_candidates(matricula)
 
-    return True
+    # normaliza candidatos: se for numérico <= 7, também considera zfill(7)
+    norm_cands = set()
+    for c in candidates:
+        c = (c or "").strip()
+        if not c:
+            continue
+        norm_cands.add(c)
+        if c.isdigit() and 1 <= len(c) <= 7:
+            norm_cands.add(c.zfill(7))
+
+    # aceita se estiver dentro de QUALQUER uma das pastas possíveis
+    for c in norm_cands:
+        base = (Path(STORAGE_DIR) / c).resolve()
+        try:
+            target.relative_to(base)
+            return True
+        except ValueError:
+            continue
+
+    return False
 
 @app.route("/view")
 @login_required

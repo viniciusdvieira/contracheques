@@ -65,6 +65,8 @@ def load_servidores_map(xlsx_path: str):
             continue
 
         matricula_digits = norm_digits(str(matricula)) if matricula else None
+        if matricula_digits and len(matricula_digits) < 7:
+            matricula_digits = matricula_digits.zfill(7)
         nome_str = str(nome).strip() if nome else None
 
         cpf_to_user[cpf_digits] = {"matricula": matricula_digits, "nome": nome_str}
