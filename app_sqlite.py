@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS users (
     department TEXT,
     position TEXT,
     email TEXT,
+    last_login_at TEXT,
     is_admin INTEGER NOT NULL DEFAULT 0,
     password_hash TEXT NOT NULL,
     must_change_password INTEGER NOT NULL DEFAULT 1
@@ -169,6 +170,7 @@ def _ensure_columns(conn):
         "department": "department TEXT",
         "position": "position TEXT",
         "email": "email TEXT",
+        "last_login_at": "last_login_at TEXT",
         "is_admin": "is_admin INTEGER NOT NULL DEFAULT 0",
     })
     ensure("payslips", {
@@ -264,6 +266,13 @@ def login():
                 conn.close()
                 is_admin_flag = 1
 
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("UPDATE users SET last_login_at=? WHERE id=?", (_now_iso(), uid))
+            conn.commit()
+            cur.close()
+            conn.close()
+
             session["user_id"] = uid
             session["matricula"] = matricula_db
             session["nome"] = nome
@@ -358,20 +367,8 @@ def admin():
 def _user_owns_path(user_id: int, abs_path: str) -> bool:
     """
     Valida se o arquivo pertence ao usuário logado.
-    Agora aceita pastas de matrícula com e sem zero à esquerda (ex.: 10143 e 0010143).
+    A validação é feita pelo vínculo no DB (payslips.user_id + file_path).
     """
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT matricula FROM users WHERE id=?", (user_id,))
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    if not row:
-        return False
-
-    matricula = str(row[0] or "").strip()
-    if not matricula:
-        return False
-
     try:
         target = Path((abs_path or "").replace("\\", "/")).resolve()
     except Exception:
@@ -380,29 +377,17 @@ def _user_owns_path(user_id: int, abs_path: str) -> bool:
     if not target.is_file():
         return False
 
-    # candidatos de pasta (matrícula e variações)
-    candidates = build_matricula_candidates(matricula)
-
-    # normaliza candidatos: se for numérico <= 7, também considera zfill(7)
-    norm_cands = set()
-    for c in candidates:
-        c = (c or "").strip()
-        if not c:
-            continue
-        norm_cands.add(c)
-        if c.isdigit() and 1 <= len(c) <= 7:
-            norm_cands.add(c.zfill(7))
-
-    # aceita se estiver dentro de QUALQUER uma das pastas possíveis
-    for c in norm_cands:
-        base = (Path(STORAGE_DIR) / c).resolve()
-        try:
-            target.relative_to(base)
-            return True
-        except ValueError:
-            continue
-
-    return False
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT file_path FROM payslips WHERE user_id=?", (user_id,))
+        for row in cur.fetchall():
+            if _normalize_to_abs(row["file_path"]) == str(target):
+                return True
+        return False
+    finally:
+        cur.close()
+        conn.close()
 
 @app.route("/view")
 @login_required
@@ -466,6 +451,7 @@ def api_admin_employees():
                     COALESCE(u.department, '') AS department,
                     COALESCE(u.position, '') AS position,
                     COALESCE(u.email, '') AS email,
+                    u.last_login_at,
                     (SELECT COUNT(*) FROM payslips p WHERE p.user_id=u.id) AS payslip_count,
                     (SELECT referencia FROM payslips p WHERE p.user_id=u.id ORDER BY referencia DESC, id DESC LIMIT 1) AS latest_payslip
                 FROM users u
@@ -506,6 +492,118 @@ def api_admin_employees():
         cur.close()
         conn.close()
 
+@app.route("/api/admin/merge", methods=["POST"])
+@admin_required
+def api_admin_merge():
+    data = request.get_json(silent=True) or request.form
+    keep_id = data.get("keep_id")
+    remove_id = data.get("remove_id")
+    try:
+        keep_id = int(keep_id)
+        remove_id = int(remove_id)
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="IDs inválidos."), 400
+    if keep_id == remove_id:
+        return jsonify(ok=False, error="Escolha contas diferentes para mesclar."), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT id, matricula, COALESCE(nome,'') AS nome, COALESCE(cpf,'') AS cpf,
+                   COALESCE(department,'') AS department, COALESCE(position,'') AS position,
+                   COALESCE(email,'') AS email, COALESCE(last_login_at,'') AS last_login_at
+            FROM users
+            WHERE id=? AND COALESCE(is_admin,0)=0
+            """,
+            (keep_id,)
+        )
+        keep = cur.fetchone()
+        cur.execute(
+            """
+            SELECT id, matricula, COALESCE(nome,'') AS nome, COALESCE(cpf,'') AS cpf,
+                   COALESCE(department,'') AS department, COALESCE(position,'') AS position,
+                   COALESCE(email,'') AS email, COALESCE(last_login_at,'') AS last_login_at
+            FROM users
+            WHERE id=? AND COALESCE(is_admin,0)=0
+            """,
+            (remove_id,)
+        )
+        remove = cur.fetchone()
+
+        if not keep or not remove:
+            return jsonify(ok=False, error="Conta não encontrada."), 404
+
+        moved = 0
+        conflicts = 0
+        cur.execute("SELECT id, referencia FROM payslips WHERE user_id=?", (remove_id,))
+        for row in cur.fetchall():
+            pid = row["id"]
+            ref = row["referencia"]
+            cur.execute(
+                "SELECT id FROM payslips WHERE user_id=? AND referencia=?",
+                (keep_id, ref)
+            )
+            if cur.fetchone():
+                cur.execute("DELETE FROM payslips WHERE id=?", (pid,))
+                conflicts += 1
+            else:
+                cur.execute("UPDATE payslips SET user_id=? WHERE id=?", (keep_id, pid))
+                moved += 1
+
+        def _pick(first: str, second: str) -> str:
+            return first if (first or "").strip() else second
+
+        def _cpf_candidate(row):
+            cpf_val = (row["cpf"] or "").strip()
+            if cpf_val:
+                return cpf_val
+            m = (row["matricula"] or "").strip()
+            if m.isdigit() and len(m) == 11:
+                return m
+            return ""
+
+        updates = {}
+        updates["nome"] = _pick(keep["nome"], remove["nome"])
+        updates["department"] = _pick(keep["department"], remove["department"])
+        updates["position"] = _pick(keep["position"], remove["position"])
+        updates["email"] = _pick(keep["email"], remove["email"])
+
+        keep_cpf = _cpf_candidate(keep)
+        remove_cpf = _cpf_candidate(remove)
+        updates["cpf"] = _pick(keep_cpf, remove_cpf)
+
+        last_keep = (keep["last_login_at"] or "").strip()
+        last_remove = (remove["last_login_at"] or "").strip()
+        if last_keep and last_remove:
+            updates["last_login_at"] = max(last_keep, last_remove)
+        elif last_keep or last_remove:
+            updates["last_login_at"] = last_keep or last_remove
+
+        cur.execute(
+            """
+            UPDATE users
+            SET nome=?, cpf=?, department=?, position=?, email=?, last_login_at=?
+            WHERE id=?
+            """,
+            (
+                updates.get("nome"),
+                updates.get("cpf"),
+                updates.get("department"),
+                updates.get("position"),
+                updates.get("email"),
+                updates.get("last_login_at"),
+                keep_id,
+            )
+        )
+
+        cur.execute("DELETE FROM users WHERE id=?", (remove_id,))
+        conn.commit()
+        return jsonify(ok=True, moved=moved, conflicts=conflicts)
+    finally:
+        cur.close()
+        conn.close()
 @app.route("/api/admin/employees/<int:user_id>", methods=["PUT"])
 @admin_required
 def api_admin_employee_update(user_id):

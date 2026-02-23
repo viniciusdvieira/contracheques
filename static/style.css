@@ -350,13 +350,29 @@ a {
   color: hsl(var(--warning));
 }
 
+.admin-search {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .admin-search input {
   width: 100%;
+  flex: 1 1 320px;
   padding: 12px 14px;
   font-size: 15px;
   border-radius: 10px;
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));
+}
+
+.filter-select {
+  padding: 12px 14px;
+  font-size: 14px;
+  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  min-width: 170px;
 }
 
 .admin-table {
@@ -383,6 +399,26 @@ a {
   border-radius: 999px;
   font-size: 12px;
   cursor: pointer;
+}
+
+.access-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  border: 2px solid hsl(var(--border));
+  background: hsl(var(--muted));
+  align-self: center;
+}
+
+.access-dot.access-ok {
+  background: hsl(var(--success));
+  border-color: hsl(var(--success));
+}
+
+.access-dot.access-no {
+  background: hsl(var(--muted));
+  border-color: hsl(var(--border));
 }
 
 .status {

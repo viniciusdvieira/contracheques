@@ -29,6 +29,11 @@
 
   <div class="admin-search">
     <input id="searchInput" type="text" placeholder="Pesquisar por nome, matrícula, CPF ou setor...">
+    <select id="accessFilter" class="filter-select">
+      <option value="all">Todos</option>
+      <option value="accessed">Acessaram</option>
+      <option value="never">Não acessaram</option>
+    </select>
   </div>
 
   <div class="admin-table card-elevated">
@@ -170,11 +175,41 @@
   </div>
 </div>
 
+<!-- Modal: Merge Accounts -->
+<div class="modal" id="mergeModal" aria-hidden="true">
+  <div class="modal-backdrop" data-close="mergeModal"></div>
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3>Mesclar Contas</h3>
+      <button class="modal-close" data-close="mergeModal">x</button>
+    </div>
+    <div class="modal-body">
+      <p class="muted-text">A conta removida será apagada e os documentos serão migrados.</p>
+      <div class="form">
+        <div class="field">
+          <label for="mergeKeep">Manter conta</label>
+          <select id="mergeKeep"></select>
+        </div>
+        <div class="field">
+          <label for="mergeRemove">Remover conta</label>
+          <select id="mergeRemove"></select>
+        </div>
+        <p class="hint-text">Em conflito de mesma referência, mantém o documento da conta principal.</p>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="mergeModal">Cancelar</button>
+      <button class="btn btn-primary" id="mergeConfirmBtn">Mesclar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const state = {
   employees: [],
   editingId: null,
   uploadUserId: null,
+  mergeKeepId: null,
 };
 
 const MONTHS = [
@@ -228,6 +263,7 @@ function renderStats(list) {
 function renderTable() {
   const body = document.getElementById("employeesBody");
   const query = document.getElementById("searchInput").value.toLowerCase().trim();
+  const accessFilter = document.getElementById("accessFilter").value;
   const filtered = state.employees.filter(e => {
     const target = [
       e.nome || "",
@@ -235,7 +271,13 @@ function renderTable() {
       e.cpf || "",
       e.department || ""
     ].join(" ").toLowerCase();
-    return target.includes(query);
+    const matchesQuery = target.includes(query);
+    const accessed = !!e.last_login_at;
+    const matchesAccess =
+      accessFilter === "all" ||
+      (accessFilter === "accessed" && accessed) ||
+      (accessFilter === "never" && !accessed);
+    return matchesQuery && matchesAccess;
   });
 
   renderStats(state.employees);
@@ -249,21 +291,28 @@ function renderTable() {
     const status = (emp.payslip_count || 0) > 0
       ? `<span class="status status-issued">${emp.payslip_count} emitido(s)</span>`
       : `<span class="status status-pending">Nenhum</span>`;
+    const cpfDisplay = emp.cpf || (String(emp.matricula || "").length === 11 ? emp.matricula : "");
+    const accessed = !!emp.last_login_at;
+    const accessTitle = accessed
+      ? `Acessou em ${new Date(emp.last_login_at).toLocaleString()}`
+      : "Ainda não acessou";
     return `
       <tr class="payslip-row">
         <td>
           <div class="emp-name">${emp.nome || "Sem nome"}</div>
           <div class="emp-sub">Matrícula: ${emp.matricula || "-"}</div>
           ${emp.position ? `<div class="emp-sub">${emp.position}</div>` : ""}
-          ${emp.cpf ? `<div class="emp-sub">CPF: ${emp.cpf}</div>` : ""}
+          ${cpfDisplay ? `<div class="emp-sub">CPF: ${cpfDisplay}</div>` : ""}
         </td>
         <td class="hide-sm">${emp.department || "—"}</td>
         <td class="hide-xs">${status}</td>
         <td class="text-right">
           <div class="action-group">
             <button class="icon-btn" data-action="view" data-id="${emp.id}">Ver</button>
+            <span class="access-dot ${accessed ? "access-ok" : "access-no"}" title="${accessTitle}"></span>
             <button class="icon-btn" data-action="edit" data-id="${emp.id}">Editar</button>
             <button class="btn btn-primary btn-sm" data-action="upload" data-id="${emp.id}">Enviar</button>
+            <button class="icon-btn" data-action="merge" data-id="${emp.id}">Mesclar</button>
           </div>
         </td>
       </tr>
@@ -283,6 +332,7 @@ async function loadEmployees() {
 }
 
 document.getElementById("searchInput").addEventListener("input", renderTable);
+document.getElementById("accessFilter").addEventListener("change", renderTable);
 document.getElementById("btn-new-user").addEventListener("click", () => openUserModal());
 
 document.getElementById("employeesBody").addEventListener("click", (event) => {
@@ -295,6 +345,7 @@ document.getElementById("employeesBody").addEventListener("click", (event) => {
   if (action === "edit") openUserModal(emp);
   if (action === "upload") openUploadModal(emp);
   if (action === "view") openViewModal(emp);
+  if (action === "merge") openMergeModal(emp);
 });
 
 function openUserModal(emp) {
@@ -372,6 +423,80 @@ function openUploadModal(emp) {
   document.getElementById("uploadFileName").textContent = "";
   openModal("uploadModal");
 }
+
+function employeeLabel(emp) {
+  const parts = [emp.nome || "Sem nome", `(${emp.matricula || "-"})`];
+  const cpfDisplay = emp.cpf || (String(emp.matricula || "").length === 11 ? emp.matricula : "");
+  if (cpfDisplay) parts.push(`CPF ${cpfDisplay}`);
+  return parts.join(" ");
+}
+
+function suggestMergeRemove(keepEmp) {
+  if (!keepEmp) return null;
+  const candidates = state.employees.filter(e => e.id !== keepEmp.id);
+  if (candidates.length === 0) return null;
+  const targetCpf = keepEmp.cpf || (String(keepEmp.matricula || "").length === 11 ? keepEmp.matricula : "");
+  if (targetCpf) {
+    const byCpf = candidates.find(e => e.cpf === targetCpf || e.matricula === targetCpf);
+    if (byCpf) return byCpf;
+  }
+  const byName = candidates.find(e => (e.nome || "").trim() && e.nome === keepEmp.nome);
+  return byName || candidates[0];
+}
+
+function buildMergeSelects() {
+  const keepSelect = document.getElementById("mergeKeep");
+  const removeSelect = document.getElementById("mergeRemove");
+  const options = state.employees.map(emp => `<option value="${emp.id}">${employeeLabel(emp)}</option>`).join("");
+  keepSelect.innerHTML = options;
+  removeSelect.innerHTML = options;
+
+  const keepId = state.mergeKeepId || (state.employees[0] ? state.employees[0].id : null);
+  if (keepId) keepSelect.value = String(keepId);
+
+  const keepEmp = state.employees.find(e => e.id === Number(keepSelect.value));
+  const suggested = suggestMergeRemove(keepEmp);
+  if (suggested) removeSelect.value = String(suggested.id);
+
+  keepSelect.onchange = () => {
+    const k = state.employees.find(e => e.id === Number(keepSelect.value));
+    const s = suggestMergeRemove(k);
+    if (s) removeSelect.value = String(s.id);
+  };
+}
+
+function openMergeModal(emp) {
+  state.mergeKeepId = emp.id;
+  buildMergeSelects();
+  openModal("mergeModal");
+}
+
+async function confirmMerge() {
+  const keepId = Number(document.getElementById("mergeKeep").value);
+  const removeId = Number(document.getElementById("mergeRemove").value);
+  if (!keepId || !removeId || keepId === removeId) {
+    showToast("Escolha contas diferentes para mesclar.", "error");
+    return;
+  }
+  if (!confirm("Confirmar a mesclagem? A conta removida será apagada.")) {
+    return;
+  }
+  const res = await fetch("/api/admin/merge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keep_id: keepId, remove_id: removeId }),
+  });
+  const data = await res.json();
+  if (!data.ok) {
+    showToast(data.error || "Erro ao mesclar contas", "error");
+    return;
+  }
+  closeModal("mergeModal");
+  showToast(`Contas mescladas. Movidos: ${data.moved || 0}. Conflitos: ${data.conflicts || 0}.`);
+  await loadEmployees();
+}
+
+document.getElementById("mergeConfirmBtn").addEventListener("click", confirmMerge);
 
 async function sendUpload() {
   const fileInput = document.getElementById("uploadFile");
