@@ -1,7 +1,9 @@
 # app_sqlite.py
 import os
+import io
 import bcrypt
 import sqlite3
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from flask import (
@@ -652,7 +654,7 @@ def api_admin_payslips():
     try:
         cur.execute(
             """
-            SELECT id, referencia, viewed_at, downloaded_at, issued_by_admin
+            SELECT id, referencia, viewed_at, downloaded_at, issued_by_admin, COALESCE(file_name, '') AS file_name
             FROM payslips
             WHERE user_id=?
             ORDER BY referencia DESC, id DESC
@@ -661,6 +663,116 @@ def api_admin_payslips():
         )
         rows = [dict(r) for r in cur.fetchall()]
         return jsonify(ok=True, payslips=rows)
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route("/admin/payslips/download")
+@admin_required
+def admin_download_payslip():
+    pid = request.args.get("pid", type=int)
+    if not pid:
+        abort(400)
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT p.file_path, COALESCE(p.file_name, '') AS file_name
+            FROM payslips p
+            WHERE p.id=?
+            """,
+            (pid,)
+        )
+        row = cur.fetchone()
+        if not row:
+            abort(404)
+
+        abs_path = _normalize_to_abs(row["file_path"])
+        if not os.path.isfile(abs_path):
+            abort(404)
+
+        download_name = row["file_name"] or os.path.basename(abs_path)
+        return send_file(abs_path, mimetype="application/pdf", as_attachment=True, download_name=download_name)
+    finally:
+        cur.close()
+        conn.close()
+
+def _zip_add_unique(zf: zipfile.ZipFile, filepath: str, arcname: str, used_names: set):
+    name = arcname
+    if name in used_names:
+        base, ext = os.path.splitext(arcname)
+        k = 2
+        while True:
+            name = f"{base}__{k}{ext}"
+            if name not in used_names:
+                break
+            k += 1
+    used_names.add(name)
+    zf.write(filepath, arcname=name)
+
+@app.route("/admin/payslips/download-zip", methods=["POST"])
+@admin_required
+def admin_download_payslips_zip():
+    data = request.get_json(silent=True) or request.form
+    try:
+        user_id = int(data.get("user_id") or 0)
+    except (TypeError, ValueError):
+        user_id = 0
+
+    ids = data.get("ids") or []
+    if isinstance(ids, str):
+        ids = [i for i in ids.split(",") if i.strip()]
+
+    try:
+        ids = [int(i) for i in ids]
+    except (TypeError, ValueError):
+        ids = []
+
+    if not user_id or not ids:
+        return jsonify(ok=False, error="Selecione os documentos."), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT matricula FROM users WHERE id=? AND COALESCE(is_admin,0)=0", (user_id,))
+        user_row = cur.fetchone()
+        if not user_row:
+            return jsonify(ok=False, error="Usuário não encontrado."), 404
+
+        placeholders = ",".join(["?"] * len(ids))
+        cur.execute(
+            f"""
+            SELECT id, referencia, file_path, COALESCE(file_name, '') AS file_name
+            FROM payslips
+            WHERE user_id=? AND id IN ({placeholders})
+            ORDER BY referencia DESC, id DESC
+            """,
+            (user_id, *ids)
+        )
+        rows = cur.fetchall()
+        if not rows:
+            return jsonify(ok=False, error="Nenhum documento encontrado."), 404
+
+        mem = io.BytesIO()
+        used = set()
+        with zipfile.ZipFile(mem, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for r in rows:
+                abs_path = _normalize_to_abs(r["file_path"])
+                if not os.path.isfile(abs_path):
+                    continue
+                ref = (r["referencia"] or "").strip() or "documento"
+                ext = os.path.splitext(abs_path)[1] or ".pdf"
+                arc = r["file_name"] or f"{ref}{ext}"
+                _zip_add_unique(zf, abs_path, arc, used)
+
+        if not used:
+            return jsonify(ok=False, error="Arquivos não encontrados no disco."), 404
+
+        mem.seek(0)
+        zip_name = f"contracheques_{user_row['matricula']}.zip"
+        return send_file(mem, mimetype="application/zip", as_attachment=True, download_name=zip_name)
     finally:
         cur.close()
         conn.close()

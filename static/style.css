@@ -520,6 +520,14 @@ a {
   margin-top: 18px;
 }
 
+.modal-footer-left {
+  margin-right: auto;
+}
+
+.check-col {
+  width: 36px;
+}
+
 .dropzone {
   border: 2px dashed hsl(var(--border));
   border-radius: 12px;

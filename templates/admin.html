@@ -156,21 +156,28 @@
         <table class="table">
           <thead>
             <tr>
+              <th class="check-col"><input type="checkbox" id="selectAllPayslips"></th>
               <th>Competência</th>
               <th>Visualizado</th>
               <th>Baixado</th>
+              <th class="text-right">Arquivo</th>
             </tr>
           </thead>
           <tbody id="viewPayslipsBody">
             <tr>
-              <td colspan="3" class="text-center muted-text">Carregando...</td>
+              <td colspan="5" class="text-center muted-text">Carregando...</td>
             </tr>
           </tbody>
         </table>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-outline" data-close="viewModal">Fechar</button>
+      <div class="modal-footer-left">
+        <button class="btn btn-outline" id="downloadSelectedBtn">Baixar selecionados</button>
+      </div>
+      <div class="modal-footer-right">
+        <button class="btn btn-outline" data-close="viewModal">Fechar</button>
+      </div>
     </div>
   </div>
 </div>
@@ -210,6 +217,8 @@ const state = {
   editingId: null,
   uploadUserId: null,
   mergeKeepId: null,
+  viewUserId: null,
+  viewSelected: new Set(),
 };
 
 const MONTHS = [
@@ -542,28 +551,87 @@ document.getElementById("dropzone").addEventListener("click", () => {
 async function openViewModal(emp) {
   document.getElementById("viewModalTitle").textContent = `Contracheques — ${emp.nome || emp.matricula}`;
   const body = document.getElementById("viewPayslipsBody");
-  body.innerHTML = `<tr><td colspan="3" class="text-center muted-text">Carregando...</td></tr>`;
+  body.innerHTML = `<tr><td colspan="5" class="text-center muted-text">Carregando...</td></tr>`;
+  document.getElementById("selectAllPayslips").checked = false;
+  state.viewSelected = new Set();
+  state.viewUserId = emp.id;
   openModal("viewModal");
 
   const res = await fetch(`/api/admin/payslips?user_id=${emp.id}`);
   const data = await res.json();
   if (!data.ok) {
-    body.innerHTML = `<tr><td colspan="3" class="text-center muted-text">Erro ao carregar.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="text-center muted-text">Erro ao carregar.</td></tr>`;
     return;
   }
   const list = data.payslips || [];
   if (list.length === 0) {
-    body.innerHTML = `<tr><td colspan="3" class="text-center muted-text">Nenhum contracheque emitido.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="text-center muted-text">Nenhum contracheque emitido.</td></tr>`;
     return;
   }
   body.innerHTML = list.map(p => `
     <tr>
+      <td class="check-col"><input type="checkbox" class="select-payslip" data-id="${p.id}"></td>
       <td>${monthLabel(p.referencia || "")}</td>
       <td>${p.viewed_at ? '<span class="status status-issued">Sim</span>' : '<span class="muted-text">Não</span>'}</td>
       <td>${p.downloaded_at ? '<span class="status status-issued">Sim</span>' : '<span class="muted-text">Não</span>'}</td>
+      <td class="text-right"><a class="icon-btn" href="/admin/payslips/download?pid=${p.id}">Baixar</a></td>
     </tr>
   `).join("");
 }
+
+document.getElementById("viewPayslipsBody").addEventListener("change", (event) => {
+  const checkbox = event.target.closest(".select-payslip");
+  if (!checkbox) return;
+  const id = Number(checkbox.dataset.id);
+  if (checkbox.checked) {
+    state.viewSelected.add(id);
+  } else {
+    state.viewSelected.delete(id);
+  }
+});
+
+document.getElementById("selectAllPayslips").addEventListener("change", (event) => {
+  const checked = event.target.checked;
+  const boxes = document.querySelectorAll("#viewPayslipsBody .select-payslip");
+  state.viewSelected = new Set();
+  boxes.forEach(box => {
+    box.checked = checked;
+    if (checked) state.viewSelected.add(Number(box.dataset.id));
+  });
+});
+
+document.getElementById("downloadSelectedBtn").addEventListener("click", async () => {
+  if (!state.viewUserId || state.viewSelected.size === 0) {
+    showToast("Selecione pelo menos um contracheque.", "error");
+    return;
+  }
+  const res = await fetch("/admin/payslips/download-zip", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: state.viewUserId,
+      ids: Array.from(state.viewSelected)
+    })
+  });
+  if (!res.ok) {
+    let msg = "Erro ao gerar o ZIP.";
+    try {
+      const data = await res.json();
+      msg = data.error || msg;
+    } catch {}
+    showToast(msg, "error");
+    return;
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "contracheques.zip";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+});
 
 function buildSelects() {
   const monthSelect = document.getElementById("uploadMonth");
