@@ -9,7 +9,11 @@
         <p class="muted-text">Gerencie funcionários e contracheques.</p>
       </div>
     </div>
-    <button class="btn btn-primary" id="btn-new-user">Novo Funcionário</button>
+    <div class="admin-actions">
+      <button class="btn btn-outline" id="btn-duplicates">Duplicados</button>
+      <button class="btn btn-outline" id="btn-bulk-download">Baixar em lote</button>
+      <button class="btn btn-primary" id="btn-new-user">Novo Funcionário</button>
+    </div>
   </div>
 
   <div class="admin-stats">
@@ -36,10 +40,16 @@
     </select>
   </div>
 
+  <div class="admin-legend">
+    <span class="legend-item"><span class="access-dot access-ok"></span> Acessou</span>
+    <span class="legend-item"><span class="access-dot access-no"></span> Não acessou</span>
+  </div>
+
   <div class="admin-table card-elevated">
     <table class="table">
       <thead>
         <tr>
+          <th class="check-col"><input type="checkbox" id="selectAllEmployees"></th>
           <th>Funcionário</th>
           <th class="hide-sm">Setor</th>
           <th class="hide-xs">Status</th>
@@ -48,7 +58,7 @@
       </thead>
       <tbody id="employeesBody">
         <tr>
-          <td colspan="4" class="text-center muted-text">Carregando...</td>
+          <td colspan="5" class="text-center muted-text">Carregando...</td>
         </tr>
       </tbody>
     </table>
@@ -112,19 +122,27 @@
   <div class="modal-backdrop" data-close="uploadModal"></div>
   <div class="modal-card">
     <div class="modal-header">
-      <h3>Enviar Contracheque</h3>
+      <h3>Enviar Documento</h3>
       <button class="modal-close" data-close="uploadModal">x</button>
     </div>
     <div class="modal-body">
       <p class="muted-text">Funcionário: <strong id="uploadEmployeeName"></strong></p>
       <div class="form-grid">
         <div class="field">
-          <label for="uploadMonth">Mês</label>
-          <select id="uploadMonth"></select>
+          <label for="uploadType">Tipo de documento</label>
+          <select id="uploadType">
+            <option value="monthly">Mensal</option>
+            <option value="13">13&ordm;</option>
+            <option value="ir">IR</option>
+          </select>
         </div>
         <div class="field">
           <label for="uploadYear">Ano</label>
           <select id="uploadYear"></select>
+        </div>
+        <div class="field" id="uploadMonthField">
+          <label for="uploadMonth">Mês</label>
+          <select id="uploadMonth"></select>
         </div>
       </div>
       <div class="field">
@@ -134,11 +152,12 @@
           <input id="uploadFile" type="file" accept=".pdf,application/pdf">
         </div>
         <p class="hint-text" id="uploadFileName"></p>
+        <p class="hint-text">Para IR e 13&ordm;, selecione apenas o ano.</p>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" data-close="uploadModal">Cancelar</button>
-      <button class="btn btn-primary" id="sendUploadBtn">Enviar Contracheque</button>
+      <button class="btn btn-primary" id="sendUploadBtn">Enviar Documento</button>
     </div>
   </div>
 </div>
@@ -211,14 +230,72 @@
   </div>
 </div>
 
+<!-- Modal: Duplicates -->
+<div class="modal" id="duplicatesModal" aria-hidden="true">
+  <div class="modal-backdrop" data-close="duplicatesModal"></div>
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3>Duplicados por Nome</h3>
+      <button class="modal-close" data-close="duplicatesModal">x</button>
+    </div>
+    <div class="modal-body">
+      <div id="duplicatesBody" class="dup-list">
+        <p class="muted-text">Carregando...</p>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="duplicatesModal">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Bulk Download -->
+<div class="modal" id="bulkModal" aria-hidden="true">
+  <div class="modal-backdrop" data-close="bulkModal"></div>
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3>Download em Lote</h3>
+      <button class="modal-close" data-close="bulkModal">x</button>
+    </div>
+    <div class="modal-body">
+      <p class="muted-text">Funcionários selecionados: <strong id="bulkCount">0</strong></p>
+      <div class="form-grid">
+        <div class="field">
+          <label for="bulkType">Tipo de documento</label>
+          <select id="bulkType">
+            <option value="monthly">Mensal</option>
+            <option value="13">13&ordm;</option>
+            <option value="ir">IR</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="bulkYear">Ano</label>
+          <select id="bulkYear"></select>
+        </div>
+        <div class="field" id="bulkMonthField">
+          <label for="bulkMonth">Mês</label>
+          <select id="bulkMonth"></select>
+        </div>
+      </div>
+      <p class="hint-text">Para IR e 13&ordm;, o mês é ignorado. O ZIP inclui apenas quem possui o documento.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close="bulkModal">Cancelar</button>
+      <button class="btn btn-primary" id="bulkConfirmBtn">Gerar ZIP</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const state = {
   employees: [],
   editingId: null,
   uploadUserId: null,
   mergeKeepId: null,
+  mergeRemoveId: null,
   viewUserId: null,
   viewSelected: new Set(),
+  selectedEmployees: new Set(),
 };
 
 const MONTHS = [
@@ -254,6 +331,8 @@ document.querySelectorAll("[data-close]").forEach(btn => {
 
 function monthLabel(ref) {
   const parts = (ref || "").split("-");
+  if (ref && ref.startsWith("IR-")) return `IR ${ref.slice(3)}`;
+  if (ref && ref.startsWith("13-")) return `13\u00ba / ${ref.slice(3)}`;
   if (parts.length < 2) return ref || "-";
   const year = parts[0];
   const month = parts[1];
@@ -292,7 +371,8 @@ function renderTable() {
   renderStats(state.employees);
 
   if (filtered.length === 0) {
-    body.innerHTML = `<tr><td colspan="4" class="text-center muted-text">Nenhum funcionário encontrado.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="text-center muted-text">Nenhum funcionário encontrado.</td></tr>`;
+    updateSelectAllEmployees([]);
     return;
   }
 
@@ -305,8 +385,10 @@ function renderTable() {
     const accessTitle = accessed
       ? `Acessou em ${new Date(emp.last_login_at).toLocaleString()}`
       : "Ainda não acessou";
+    const checked = state.selectedEmployees.has(emp.id) ? "checked" : "";
     return `
       <tr class="payslip-row">
+        <td class="check-col"><input type="checkbox" class="select-employee" data-id="${emp.id}" ${checked}></td>
         <td>
           <div class="emp-name">${emp.nome || "Sem nome"}</div>
           <div class="emp-sub">Matrícula: ${emp.matricula || "-"}</div>
@@ -327,6 +409,8 @@ function renderTable() {
       </tr>
     `;
   }).join("");
+
+  updateSelectAllEmployees(filtered);
 }
 
 async function loadEmployees() {
@@ -343,6 +427,8 @@ async function loadEmployees() {
 document.getElementById("searchInput").addEventListener("input", renderTable);
 document.getElementById("accessFilter").addEventListener("change", renderTable);
 document.getElementById("btn-new-user").addEventListener("click", () => openUserModal());
+document.getElementById("btn-bulk-download").addEventListener("click", openBulkModal);
+document.getElementById("btn-duplicates").addEventListener("click", openDuplicatesModal);
 
 document.getElementById("employeesBody").addEventListener("click", (event) => {
   const btn = event.target.closest("button[data-action]");
@@ -355,6 +441,32 @@ document.getElementById("employeesBody").addEventListener("click", (event) => {
   if (action === "upload") openUploadModal(emp);
   if (action === "view") openViewModal(emp);
   if (action === "merge") openMergeModal(emp);
+});
+
+document.getElementById("employeesBody").addEventListener("change", (event) => {
+  const checkbox = event.target.closest(".select-employee");
+  if (!checkbox) return;
+  const id = Number(checkbox.dataset.id);
+  if (checkbox.checked) {
+    state.selectedEmployees.add(id);
+  } else {
+    state.selectedEmployees.delete(id);
+  }
+  updateSelectAllEmployees();
+});
+
+document.getElementById("selectAllEmployees").addEventListener("change", (event) => {
+  const checked = event.target.checked;
+  const visible = Array.from(document.querySelectorAll("#employeesBody .select-employee"));
+  visible.forEach(box => {
+    box.checked = checked;
+    const id = Number(box.dataset.id);
+    if (checked) {
+      state.selectedEmployees.add(id);
+    } else {
+      state.selectedEmployees.delete(id);
+    }
+  });
 });
 
 function openUserModal(emp) {
@@ -430,6 +542,11 @@ function openUploadModal(emp) {
   document.getElementById("uploadEmployeeName").textContent = emp.nome || emp.matricula;
   document.getElementById("uploadFile").value = "";
   document.getElementById("uploadFileName").textContent = "";
+  const typeEl = document.getElementById("uploadType");
+  if (typeEl) {
+    typeEl.value = "monthly";
+    typeEl.dispatchEvent(new Event("change"));
+  }
   openModal("uploadModal");
 }
 
@@ -463,9 +580,14 @@ function buildMergeSelects() {
   const keepId = state.mergeKeepId || (state.employees[0] ? state.employees[0].id : null);
   if (keepId) keepSelect.value = String(keepId);
 
-  const keepEmp = state.employees.find(e => e.id === Number(keepSelect.value));
-  const suggested = suggestMergeRemove(keepEmp);
-  if (suggested) removeSelect.value = String(suggested.id);
+  if (state.mergeRemoveId) {
+    removeSelect.value = String(state.mergeRemoveId);
+  } else {
+    const keepEmp = state.employees.find(e => e.id === Number(keepSelect.value));
+    const suggested = suggestMergeRemove(keepEmp);
+    if (suggested) removeSelect.value = String(suggested.id);
+  }
+  state.mergeRemoveId = null;
 
   keepSelect.onchange = () => {
     const k = state.employees.find(e => e.id === Number(keepSelect.value));
@@ -479,6 +601,92 @@ function openMergeModal(emp) {
   buildMergeSelects();
   openModal("mergeModal");
 }
+
+function openMergeModalByIds(keepId, removeId) {
+  state.mergeKeepId = keepId;
+  state.mergeRemoveId = removeId || null;
+  buildMergeSelects();
+  openModal("mergeModal");
+}
+
+function formatAccessText(user) {
+  if (!user.last_login_at) return "Nunca acessou";
+  try {
+    return `Acessou em ${new Date(user.last_login_at).toLocaleString()}`;
+  } catch {
+    return `Acessou em ${user.last_login_at}`;
+  }
+}
+
+function pickKeepAndRemove(users) {
+  const sorted = [...users].sort((a, b) => {
+    const pa = a.payslip_count || 0;
+    const pb = b.payslip_count || 0;
+    if (pa !== pb) return pb - pa;
+    const la = a.last_login_at || "";
+    const lb = b.last_login_at || "";
+    if (la !== lb) return lb.localeCompare(la);
+    return (String(a.matricula || "").length) - (String(b.matricula || "").length);
+  });
+  const keep = sorted[0];
+  const remove = sorted[1] || sorted[0];
+  return { keep, remove };
+}
+
+async function openDuplicatesModal() {
+  const body = document.getElementById("duplicatesBody");
+  body.innerHTML = `<p class="muted-text">Carregando...</p>`;
+  openModal("duplicatesModal");
+  const res = await fetch("/api/admin/duplicates");
+  const data = await res.json();
+  if (!data.ok) {
+    body.innerHTML = `<p class="muted-text">Erro ao carregar duplicados.</p>`;
+    return;
+  }
+  const groups = data.groups || [];
+  if (groups.length === 0) {
+    body.innerHTML = `<p class="muted-text">Nenhum duplicado encontrado.</p>`;
+    return;
+  }
+  body.innerHTML = groups.map(group => {
+    const usersHtml = group.users.map(u => {
+      const cpfDisplay = u.cpf || (String(u.matricula || "").length === 11 ? u.matricula : "");
+      return `
+      <div class="dup-row">
+        <div>
+          <div class="emp-name">${u.nome || "Sem nome"}</div>
+          <div class="emp-sub">Matrícula: ${u.matricula || "-"}${cpfDisplay ? ` | CPF: ${cpfDisplay}` : ""}</div>
+          <div class="emp-sub">Docs: ${u.payslip_count || 0} | ${formatAccessText(u)}</div>
+        </div>
+      </div>
+    `;
+    }).join("");
+    const { keep, remove } = pickKeepAndRemove(group.users);
+    return `
+      <div class="dup-card">
+        <div class="dup-header">
+          <div>
+            <div class="emp-name">${group.name}</div>
+            <div class="emp-sub">${group.users.length} conta(s)</div>
+          </div>
+          <button class="btn btn-outline btn-sm" data-dup-keep="${keep.id}" data-dup-remove="${remove.id}">
+            Mesclar
+          </button>
+        </div>
+        <div class="dup-users">${usersHtml}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+document.getElementById("duplicatesBody").addEventListener("click", (event) => {
+  const btn = event.target.closest("button[data-dup-keep]");
+  if (!btn) return;
+  const keepId = Number(btn.dataset.dupKeep);
+  const removeId = Number(btn.dataset.dupRemove);
+  closeModal("duplicatesModal");
+  openMergeModalByIds(keepId, removeId);
+});
 
 async function confirmMerge() {
   const keepId = Number(document.getElementById("mergeKeep").value);
@@ -514,11 +722,13 @@ async function sendUpload() {
     showToast("Selecione um PDF.", "error");
     return;
   }
+  const docType = document.getElementById("uploadType").value;
   const month = document.getElementById("uploadMonth").value;
   const year = document.getElementById("uploadYear").value;
 
   const form = new FormData();
   form.append("user_id", String(state.uploadUserId));
+  form.append("doc_type", docType);
   form.append("ref_month", month);
   form.append("ref_year", year);
   form.append("file", file);
@@ -635,16 +845,118 @@ document.getElementById("downloadSelectedBtn").addEventListener("click", async (
 
 function buildSelects() {
   const monthSelect = document.getElementById("uploadMonth");
-  monthSelect.innerHTML = MONTHS.map(m => `<option value="${m.value}">${m.label}</option>`).join("");
+  if (monthSelect) {
+    monthSelect.innerHTML = MONTHS.map(m => `<option value="${m.value}">${m.label}</option>`).join("");
+  }
   const yearSelect = document.getElementById("uploadYear");
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 5 }, (_, i) => String(currentYear - i));
-  yearSelect.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join("");
-  monthSelect.value = String(new Date().getMonth() + 1).padStart(2, "0");
-  yearSelect.value = String(currentYear);
+  if (yearSelect) {
+    yearSelect.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join("");
+  }
+  if (monthSelect) monthSelect.value = String(new Date().getMonth() + 1).padStart(2, "0");
+  if (yearSelect) yearSelect.value = String(currentYear);
+
+  const bulkMonth = document.getElementById("bulkMonth");
+  const bulkYear = document.getElementById("bulkYear");
+  if (bulkMonth) {
+    bulkMonth.innerHTML = MONTHS.map(m => `<option value="${m.value}">${m.label}</option>`).join("");
+    bulkMonth.value = String(new Date().getMonth() + 1).padStart(2, "0");
+  }
+  if (bulkYear) {
+    bulkYear.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join("");
+    bulkYear.value = String(currentYear);
+  }
 }
 
+function applyDocTypeUI(typeSelectId, monthFieldId) {
+  const typeEl = document.getElementById(typeSelectId);
+  const monthField = document.getElementById(monthFieldId);
+  if (!typeEl || !monthField) return;
+  const update = () => {
+    const isMonthly = typeEl.value === "monthly";
+    monthField.style.opacity = isMonthly ? "1" : "0.5";
+    monthField.style.pointerEvents = isMonthly ? "auto" : "none";
+  };
+  typeEl.addEventListener("change", update);
+  update();
+}
+
+function updateSelectAllEmployees(filteredList) {
+  const header = document.getElementById("selectAllEmployees");
+  if (!header) return;
+  const visible = filteredList
+    ? filteredList.map(e => e.id)
+    : Array.from(document.querySelectorAll("#employeesBody .select-employee"))
+        .map(el => Number(el.dataset.id));
+  if (visible.length === 0) {
+    header.checked = false;
+    header.indeterminate = false;
+    return;
+  }
+  const selectedCount = visible.filter(id => state.selectedEmployees.has(id)).length;
+  header.checked = selectedCount === visible.length;
+  header.indeterminate = selectedCount > 0 && selectedCount < visible.length;
+}
+
+function openBulkModal() {
+  if (state.selectedEmployees.size === 0) {
+    showToast("Selecione ao menos um funcionário.", "error");
+    return;
+  }
+  document.getElementById("bulkCount").textContent = String(state.selectedEmployees.size);
+  const typeEl = document.getElementById("bulkType");
+  if (typeEl) {
+    typeEl.value = "monthly";
+    typeEl.dispatchEvent(new Event("change"));
+  }
+  openModal("bulkModal");
+}
+
+async function confirmBulkDownload() {
+  if (state.selectedEmployees.size === 0) {
+    showToast("Selecione ao menos um funcionário.", "error");
+    return;
+  }
+  const docType = document.getElementById("bulkType").value;
+  const month = document.getElementById("bulkMonth").value;
+  const year = document.getElementById("bulkYear").value;
+  const res = await fetch("/admin/payslips/download-zip-bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      doc_type: docType,
+      ref_month: month,
+      ref_year: year,
+      user_ids: Array.from(state.selectedEmployees),
+    })
+  });
+  if (!res.ok) {
+    let msg = "Erro ao gerar o ZIP.";
+    try {
+      const data = await res.json();
+      msg = data.error || msg;
+    } catch {}
+    showToast(msg, "error");
+    return;
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "contracheques_lote.zip";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+  closeModal("bulkModal");
+}
+
+document.getElementById("bulkConfirmBtn").addEventListener("click", confirmBulkDownload);
+
 buildSelects();
+applyDocTypeUI("uploadType", "uploadMonthField");
+applyDocTypeUI("bulkType", "bulkMonthField");
 loadEmployees();
 </script>
 {% endblock %}

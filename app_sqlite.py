@@ -1,6 +1,7 @@
 # app_sqlite.py
 import os
 import io
+import re
 import bcrypt
 import sqlite3
 import zipfile
@@ -78,6 +79,7 @@ def init_db():
         conn.executescript(DDL_USERS + DDL_PAYSLIPS)
         _ensure_columns(conn)
         bootstrap_admins(conn)
+        _backfill_last_login(conn)
         conn.commit()
     finally:
         conn.close()
@@ -181,6 +183,31 @@ def _ensure_columns(conn):
         "viewed_at": "viewed_at TEXT",
         "downloaded_at": "downloaded_at TEXT",
     })
+
+def _backfill_last_login(conn):
+    """
+    Preenche last_login_at baseado em visualizações/baixados existentes,
+    sem sobrescrever valores já registrados.
+    """
+    conn.execute(
+        """
+        UPDATE users
+        SET last_login_at = (
+            SELECT MAX(ts) FROM (
+                SELECT MAX(viewed_at) AS ts FROM payslips WHERE user_id=users.id
+                UNION ALL
+                SELECT MAX(downloaded_at) AS ts FROM payslips WHERE user_id=users.id
+            )
+        )
+        WHERE last_login_at IS NULL
+        """
+    )
+
+def _norm_name(name: str) -> str:
+    name = (name or "").strip()
+    if not name:
+        return ""
+    return re.sub(r"\s+", " ", name).upper()
 
 # =========================
 # AUTH HELPERS
@@ -347,17 +374,47 @@ def dashboard():
     cur.close()
     conn.close()
 
+    months = {
+        "01": "Janeiro", "02": "Fevereiro", "03": "Março", "04": "Abril",
+        "05": "Maio", "06": "Junho", "07": "Julho", "08": "Agosto",
+        "09": "Setembro", "10": "Outubro", "11": "Novembro", "12": "Dezembro",
+    }
+
+    def format_ref(ref: str) -> str:
+        ref = ref or ""
+        if ref.startswith("IR-") and len(ref) >= 6:
+            return f"IR {ref[3:]}"
+        if ref.startswith("13-") and len(ref) >= 6:
+            return f"13º {ref[3:]}"
+        parts = ref.split("-")
+        if len(parts) == 2 and parts[0].isdigit():
+            year, month = parts
+            return f"{months.get(month, month)} / {year}"
+        return ref or "sem-ref"
+
     normalized = []
+    total = 0
+    total_ir = 0
+    total_13 = 0
     for pid, ref, file_path in payslips:
         abs_path = _normalize_to_abs(file_path)
+        total += 1
+        if (ref or "").startswith("IR-"):
+            total_ir += 1
+        elif (ref or "").startswith("13-"):
+            total_13 += 1
         normalized.append({
             "id": pid,
             "referencia": ref or "sem-ref",
+            "label": format_ref(ref or ""),
             "abs_path": abs_path
         })
 
     return render_template("dashboard.html",
                            payslips=normalized,
+                           total=total,
+                           total_ir=total_ir,
+                           total_13=total_13,
                            matricula=matricula,
                            nome=nome)
 
@@ -642,6 +699,59 @@ def api_admin_employee_update(user_id):
         cur.close()
         conn.close()
 
+@app.route("/api/admin/duplicates", methods=["GET"])
+@admin_required
+def api_admin_duplicates():
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT
+                u.id,
+                u.matricula,
+                COALESCE(u.nome, '') AS nome,
+                COALESCE(u.cpf, '') AS cpf,
+                COALESCE(u.last_login_at, '') AS last_login_at,
+                (SELECT COUNT(*) FROM payslips p WHERE p.user_id=u.id) AS payslip_count
+            FROM users u
+            WHERE COALESCE(u.is_admin, 0) = 0
+            """
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+        groups = {}
+        for r in rows:
+            key = _norm_name(r.get("nome") or "")
+            if not key:
+                continue
+            groups.setdefault(key, []).append(r)
+
+        results = []
+        for key, users in groups.items():
+            if len(users) < 2:
+                continue
+            users_sorted = sorted(
+                users,
+                key=lambda u: (
+                    u.get("payslip_count") or 0,
+                    u.get("last_login_at") or "",
+                ),
+                reverse=True
+            )
+            display_name = users_sorted[0].get("nome") or key.title()
+            results.append({
+                "name": display_name,
+                "norm": key,
+                "users": users_sorted
+            })
+
+        results.sort(key=lambda g: g["norm"])
+        return jsonify(ok=True, groups=results)
+    finally:
+        cur.close()
+        conn.close()
+
 @app.route("/api/admin/payslips", methods=["GET"])
 @admin_required
 def api_admin_payslips():
@@ -777,6 +887,84 @@ def admin_download_payslips_zip():
         cur.close()
         conn.close()
 
+@app.route("/admin/payslips/download-zip-bulk", methods=["POST"])
+@admin_required
+def admin_download_payslips_zip_bulk():
+    data = request.get_json(silent=True) or request.form
+    doc_type = (data.get("doc_type") or "monthly").strip().lower()
+    ref_month = (data.get("ref_month") or "").strip()
+    ref_year = (data.get("ref_year") or "").strip()
+
+    if not ref_year.isdigit() or len(ref_year) != 4:
+        return jsonify(ok=False, error="Ano inválido."), 400
+    if doc_type not in ("monthly", "13", "ir"):
+        return jsonify(ok=False, error="Tipo inválido."), 400
+
+    referencia = ""
+    if doc_type == "monthly":
+        if not ref_month.isdigit() or not (1 <= int(ref_month) <= 12):
+            return jsonify(ok=False, error="Mês inválido."), 400
+        ref_month = ref_month.zfill(2)
+        referencia = f"{ref_year}-{ref_month}"
+    elif doc_type == "13":
+        referencia = f"13-{ref_year}"
+    elif doc_type == "ir":
+        referencia = f"IR-{ref_year}"
+
+    user_ids = data.get("user_ids") or data.get("ids") or []
+    if isinstance(user_ids, str):
+        user_ids = [i for i in user_ids.split(",") if i.strip()]
+    try:
+        user_ids = [int(i) for i in user_ids]
+    except (TypeError, ValueError):
+        user_ids = []
+
+    if not user_ids:
+        return jsonify(ok=False, error="Selecione os funcionários."), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        placeholders = ",".join(["?"] * len(user_ids))
+        cur.execute(
+            f"""
+            SELECT p.file_path,
+                   p.referencia,
+                   COALESCE(p.file_name, '') AS file_name,
+                   u.matricula,
+                   COALESCE(u.nome, '') AS nome
+            FROM payslips p
+            JOIN users u ON u.id = p.user_id
+            WHERE p.referencia=? AND p.user_id IN ({placeholders})
+            ORDER BY u.matricula
+            """,
+            (referencia, *user_ids)
+        )
+        rows = cur.fetchall()
+        if not rows:
+            return jsonify(ok=False, error="Nenhum documento encontrado."), 404
+
+        mem = io.BytesIO()
+        used = set()
+        with zipfile.ZipFile(mem, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for r in rows:
+                abs_path = _normalize_to_abs(r["file_path"])
+                if not os.path.isfile(abs_path):
+                    continue
+                base_name = r["file_name"] or f"{r['referencia']}.pdf"
+                arc = f"{r['matricula']}_{base_name}"
+                _zip_add_unique(zf, abs_path, arc, used)
+
+        if not used:
+            return jsonify(ok=False, error="Arquivos não encontrados no disco."), 404
+
+        mem.seek(0)
+        zip_name = f"contracheques_{referencia}.zip"
+        return send_file(mem, mimetype="application/zip", as_attachment=True, download_name=zip_name)
+    finally:
+        cur.close()
+        conn.close()
+
 @app.route("/api/admin/payslips/upload", methods=["POST"])
 @admin_required
 def api_admin_payslips_upload():
@@ -784,12 +972,17 @@ def api_admin_payslips_upload():
         user_id = int(request.form.get("user_id", ""))
     except ValueError:
         user_id = None
+    doc_type = (request.form.get("doc_type") or "monthly").strip().lower()
     ref_month = (request.form.get("ref_month") or "").strip()
     ref_year = (request.form.get("ref_year") or "").strip()
     upload = request.files.get("file")
 
-    if not user_id or not ref_month or not ref_year:
-        return jsonify(ok=False, error="Informe usuário, mês e ano."), 400
+    if not user_id:
+        return jsonify(ok=False, error="Informe o usuário."), 400
+    if doc_type not in ("monthly", "13", "ir"):
+        return jsonify(ok=False, error="Tipo inválido."), 400
+    if not ref_year:
+        return jsonify(ok=False, error="Informe o ano."), 400
     if not upload or not upload.filename:
         return jsonify(ok=False, error="Selecione um arquivo PDF."), 400
 
@@ -799,11 +992,17 @@ def api_admin_payslips_upload():
 
     if not ref_year.isdigit() or len(ref_year) != 4:
         return jsonify(ok=False, error="Ano inválido."), 400
-    if not ref_month.isdigit() or not (1 <= int(ref_month) <= 12):
-        return jsonify(ok=False, error="Mês inválido."), 400
 
-    ref_month = ref_month.zfill(2)
-    referencia = f"{ref_year}-{ref_month}"
+    referencia = ""
+    if doc_type == "monthly":
+        if not ref_month.isdigit() or not (1 <= int(ref_month) <= 12):
+            return jsonify(ok=False, error="Mês inválido."), 400
+        ref_month = ref_month.zfill(2)
+        referencia = f"{ref_year}-{ref_month}"
+    elif doc_type == "13":
+        referencia = f"13-{ref_year}"
+    elif doc_type == "ir":
+        referencia = f"IR-{ref_year}"
 
     conn = get_db()
     cur = conn.cursor()

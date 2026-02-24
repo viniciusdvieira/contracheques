@@ -2,10 +2,11 @@
 {% block content %}
 <section class="login-card card-elevated">
   <h2 class="page-title">Acesso</h2>
+  <p class="page-subtitle">Entre com sua matr&iacute;cula ou CPF e sua senha.</p>
   <form method="post" class="form">
     <div class="field">
-      <label for="matricula">Matrícula</label>
-      <input id="matricula" type="text" name="matricula" placeholder="ex.: 12345 " required>
+      <label for="matricula">Matr&iacute;cula ou CPF</label>
+      <input id="matricula" type="text" name="matricula" placeholder="ex.: 0001234 ou 00000000000" required>
     </div>
 
     <div class="field">
@@ -19,10 +20,12 @@
       </div>
     </div>
 
-    <button type="submit" class="btn btn-primary">Entrar</button>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Entrar</button>
+    </div>
   </form>
 
-  <p class="hint">Primeiro acesso? Sua senha inicial é <code>agespisa{matrícula}</code> (ex.: <code>agespisa12345</code>). Você terá que alterá-la no primeiro login.</p>
+  <p class="hint">Primeiro acesso? Sua senha inicial &eacute; <code>agespisa{matr&iacute;cula}</code> (ex.: <code>agespisa12345</code>). Voc&ecirc; ter&aacute; que alter&aacute;-la no primeiro login.</p>
 </section>
 
 <script>

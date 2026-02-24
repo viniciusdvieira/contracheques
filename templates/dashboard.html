@@ -1,21 +1,44 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card-elevated dashboard-card">
-  <h2 class="page-title">Servidor: {{ nome }} (Matrícula: {{ matricula }})</h2>
+<section class="card-elevated dashboard-hero">
+  <div class="hero-header">
+    <div>
+      <h2 class="page-title">Ol&aacute;, {{ nome }}</h2>
+      <p class="muted-text">Matr&iacute;cula: {{ matricula }}</p>
+    </div>
+    <div class="hero-badges">
+      <span class="badge badge-neutral">Total {{ total }}</span>
+      <span class="badge badge-ir">IR {{ total_ir }}</span>
+      <span class="badge badge-13">13&ordm; {{ total_13 }}</span>
+    </div>
+  </div>
+  <p class="page-subtitle">Aqui est&atilde;o seus documentos dispon&iacute;veis para consulta e download.</p>
+</section>
 
+<section class="card-elevated dashboard-card">
   {% if payslips %}
   <table class="table">
     <thead>
       <tr>
-        <th>Referência</th>
-        <th>Contracheques</th>
+        <th>Tipo</th>
+        <th>Compet&ecirc;ncia</th>
+        <th class="text-right">A&ccedil;&otilde;es</th>
       </tr>
     </thead>
     <tbody>
     {% for p in payslips %}
       <tr class="payslip-row">
-        <td>{{ p.referencia }}</td>
-        <td class="action-links">
+        <td>
+          {% if p.referencia.startswith('IR-') %}
+            <span class="badge badge-ir">IR</span>
+          {% elif p.referencia.startswith('13-') %}
+            <span class="badge badge-13">13&ordm;</span>
+          {% else %}
+            <span class="badge badge-neutral">Mensal</span>
+          {% endif %}
+        </td>
+        <td>{{ p.label }}</td>
+        <td class="action-links text-right">
           <a href="{{ url_for('view_pdf', path=p.abs_path, pid=p.id) }}" target="_blank">Visualizar</a>
           <a href="{{ url_for('download_pdf', path=p.abs_path, pid=p.id) }}">Baixar</a>
         </td>
@@ -24,7 +47,7 @@
     </tbody>
   </table>
   {% else %}
-  <div class="empty-state">Não há contracheques disponíveis.</div>
+  <div class="empty-state">N&atilde;o h&aacute; documentos dispon&iacute;veis.</div>
   {% endif %}
 </section>
 {% endblock %}

@@ -157,6 +157,12 @@ a {
   margin: 0 0 16px;
 }
 
+.page-subtitle {
+  margin: -8px 0 18px;
+  color: hsl(var(--muted-foreground));
+  font-size: 14px;
+}
+
 .card-elevated {
   background: var(--gradient-card);
   border: 1px solid hsl(var(--border));
@@ -176,9 +182,35 @@ a {
   animation: fade-in 0.35s ease;
 }
 
+.dashboard-hero {
+  padding: 22px 24px;
+  margin-bottom: 18px;
+  background: linear-gradient(135deg, hsl(220 50% 98%) 0%, hsl(210 40% 96%) 100%);
+}
+
+.hero-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .form {
   display: grid;
   gap: 14px;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .field {
@@ -297,6 +329,12 @@ a {
   margin-bottom: 20px;
 }
 
+.admin-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .admin-title {
   display: flex;
   align-items: center;
@@ -354,6 +392,26 @@ a {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.admin-legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 10px 0 4px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .admin-search input {
@@ -528,6 +586,38 @@ a {
   width: 36px;
 }
 
+.dup-list {
+  display: grid;
+  gap: 12px;
+}
+
+.dup-card {
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  padding: 12px;
+  background: hsl(var(--card));
+}
+
+.dup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.dup-users {
+  display: grid;
+  gap: 8px;
+}
+
+.dup-row {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: hsl(210 30% 96% / 0.6);
+  border: 1px dashed hsl(var(--border));
+}
+
 .dropzone {
   border: 2px dashed hsl(var(--border));
   border-radius: 12px;
@@ -535,6 +625,12 @@ a {
   text-align: center;
   cursor: pointer;
   background: hsl(210 30% 96% / 0.5);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dropzone:hover {
+  border-color: hsl(var(--gold));
+  background: hsl(42 85% 48% / 0.08);
 }
 
 .dropzone input {
@@ -584,6 +680,37 @@ a {
 
 .action-links a:last-child {
   margin-right: 0;
+}
+
+.action-links {
+  display: inline-flex;
+  gap: 12px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.badge-neutral {
+  background: hsl(220 20% 94%);
+  color: hsl(220 35% 24%);
+}
+
+.badge-ir {
+  background: hsl(200 90% 92%);
+  color: hsl(200 80% 30%);
+}
+
+.badge-13 {
+  background: hsl(42 90% 92%);
+  color: hsl(42 80% 30%);
 }
 
 .flashes {
