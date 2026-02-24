@@ -38,6 +38,13 @@
       <option value="accessed">Acessaram</option>
       <option value="never">Não acessaram</option>
     </select>
+    <select id="complementFilter" class="filter-select">
+      <option value="all">Todos os complementos</option>
+      <option value="essencial">Essencial</option>
+      <option value="estabilidade">Estabilidade</option>
+      <option value="aviso_previo">Aviso prévio</option>
+      <option value="none">Sem complemento</option>
+    </select>
   </div>
 
   <div class="admin-legend">
@@ -89,7 +96,7 @@
           <label for="userEmail">E-mail</label>
           <input id="userEmail" type="email" placeholder="email@empresa.com">
         </div>
-        <div class="field">
+        <div class="field" id="userSenhaField">
           <label for="userSenha">Senha inicial</label>
           <input id="userSenha" type="password" placeholder="Senha temporária">
           <p class="hint-text" id="passwordHint">O funcionário deverá alterar no primeiro acesso.</p>
@@ -352,20 +359,27 @@ function renderTable() {
   const body = document.getElementById("employeesBody");
   const query = document.getElementById("searchInput").value.toLowerCase().trim();
   const accessFilter = document.getElementById("accessFilter").value;
+  const complementFilter = document.getElementById("complementFilter").value;
   const filtered = state.employees.filter(e => {
     const target = [
       e.nome || "",
       e.matricula || "",
       e.cpf || "",
-      e.department || ""
+      e.department || "",
+      e.complemento || ""
     ].join(" ").toLowerCase();
     const matchesQuery = target.includes(query);
     const accessed = !!e.last_login_at;
+    const complemento = e.complemento || "";
     const matchesAccess =
       accessFilter === "all" ||
       (accessFilter === "accessed" && accessed) ||
       (accessFilter === "never" && !accessed);
-    return matchesQuery && matchesAccess;
+    const matchesComplement =
+      complementFilter === "all" ||
+      (complementFilter === "none" && !complemento) ||
+      complemento === complementFilter;
+    return matchesQuery && matchesAccess && matchesComplement;
   });
 
   renderStats(state.employees);
@@ -386,12 +400,20 @@ function renderTable() {
       ? `Acessou em ${new Date(emp.last_login_at).toLocaleString()}`
       : "Ainda não acessou";
     const checked = state.selectedEmployees.has(emp.id) ? "checked" : "";
+    const complementoLabel = emp.complemento === "essencial"
+      ? "Essencial"
+      : emp.complemento === "estabilidade"
+        ? "Estabilidade"
+        : emp.complemento === "aviso_previo"
+          ? "Aviso prévio"
+          : "";
     return `
       <tr class="payslip-row">
         <td class="check-col"><input type="checkbox" class="select-employee" data-id="${emp.id}" ${checked}></td>
         <td>
           <div class="emp-name">${emp.nome || "Sem nome"}</div>
           <div class="emp-sub">Matrícula: ${emp.matricula || "-"}</div>
+          ${complementoLabel ? `<div class="emp-sub">Complemento: ${complementoLabel}</div>` : ""}
           ${emp.position ? `<div class="emp-sub">${emp.position}</div>` : ""}
           ${cpfDisplay ? `<div class="emp-sub">CPF: ${cpfDisplay}</div>` : ""}
         </td>
@@ -402,6 +424,7 @@ function renderTable() {
             <button class="icon-btn" data-action="view" data-id="${emp.id}">Ver</button>
             <span class="access-dot ${accessed ? "access-ok" : "access-no"}" title="${accessTitle}"></span>
             <button class="icon-btn" data-action="edit" data-id="${emp.id}">Editar</button>
+            <button class="icon-btn" data-action="resetpwd" data-id="${emp.id}">Redefinir senha</button>
             <button class="btn btn-primary btn-sm" data-action="upload" data-id="${emp.id}">Enviar</button>
             <button class="icon-btn" data-action="merge" data-id="${emp.id}">Mesclar</button>
           </div>
@@ -426,6 +449,7 @@ async function loadEmployees() {
 
 document.getElementById("searchInput").addEventListener("input", renderTable);
 document.getElementById("accessFilter").addEventListener("change", renderTable);
+document.getElementById("complementFilter").addEventListener("change", renderTable);
 document.getElementById("btn-new-user").addEventListener("click", () => openUserModal());
 document.getElementById("btn-bulk-download").addEventListener("click", openBulkModal);
 document.getElementById("btn-duplicates").addEventListener("click", openDuplicatesModal);
@@ -438,6 +462,7 @@ document.getElementById("employeesBody").addEventListener("click", (event) => {
   const emp = state.employees.find(e => e.id === id);
   if (!emp) return;
   if (action === "edit") openUserModal(emp);
+  if (action === "resetpwd") resetEmployeePassword(emp);
   if (action === "upload") openUploadModal(emp);
   if (action === "view") openViewModal(emp);
   if (action === "merge") openMergeModal(emp);
@@ -478,11 +503,12 @@ function openUserModal(emp) {
   document.getElementById("userMatriculaField").style.display = emp ? "none" : "block";
   document.getElementById("userEmail").value = emp?.email || "";
   document.getElementById("userSenha").value = "";
+  document.getElementById("userSenhaField").style.display = emp ? "none" : "block";
   document.getElementById("userCpf").value = emp?.cpf || "";
   document.getElementById("userCargo").value = emp?.position || "";
   document.getElementById("userDepto").value = emp?.department || "";
   document.getElementById("passwordHint").textContent = emp
-    ? "Deixe em branco para não alterar a senha."
+    ? "Use o botão \"Redefinir senha\" na listagem."
     : "O funcionário deverá alterar no primeiro acesso.";
   openModal("userModal");
 }
@@ -533,6 +559,26 @@ async function saveUser() {
   closeModal("userModal");
   showToast("Funcionário salvo com sucesso!");
   await loadEmployees();
+}
+
+async function resetEmployeePassword(emp) {
+  const novaSenha = prompt(`Nova senha temporária para ${emp.nome || emp.matricula}:`);
+  if (novaSenha === null) return;
+  if (!novaSenha || novaSenha.length < 6) {
+    showToast("A senha deve ter pelo menos 6 caracteres.", "error");
+    return;
+  }
+  const res = await fetch(`/api/admin/employees/${emp.id}/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: novaSenha }),
+  });
+  const data = await res.json();
+  if (!data.ok) {
+    showToast(data.error || "Erro ao redefinir senha", "error");
+    return;
+  }
+  showToast("Senha redefinida. O usuário precisará trocar no próximo acesso.");
 }
 
 document.getElementById("saveUserBtn").addEventListener("click", saveUser);
