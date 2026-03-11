@@ -1,6 +1,39 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card-elevated admin-card">
+<style>
+.admin-tab-nav { display: flex; gap: 8px; margin-bottom: 20px; }
+.admin-tab { padding: 10px 22px; border: 2px solid #e2e8f0; border-radius: 10px; background: #fff; color: #667085; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+.admin-tab.active { border-color: #0f172a; background: #0f172a; color: #fff; }
+.admin-tab:hover:not(.active) { border-color: #94a3b8; color: #334155; }
+.humana-layout { display: grid; grid-template-columns: 310px 1fr; gap: 20px; }
+.humana-sidebar { display: flex; flex-direction: column; gap: 14px; }
+.humana-preview-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.humana-doc { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 40px; font-family: "Times New Roman", serif; font-size: 16px; line-height: 1.7; color: #000; min-height: 520px; }
+.humana-doc-header { text-align: center; margin-bottom: 20px; }
+.humana-doc-header img { max-width: 100%; height: auto; }
+.humana-doc-title { text-align: center; font-family: Arial, sans-serif; font-size: 20px; letter-spacing: 0.5px; margin: 16px 0 20px; }
+.humana-text { text-align: justify; margin: 0 0 18px; }
+.humana-table { border-collapse: collapse; margin: 0 auto 20px; min-width: 300px; font-size: 16px; }
+.humana-table th, .humana-table td { border: 1px solid #000; padding: 4px 16px; text-align: center; }
+.humana-signature { margin-top: 40px; text-align: center; }
+.humana-signature img { width: 240px; max-width: 100%; height: auto; display: block; margin: 0 auto 4px; }
+.humana-signature-line { width: 280px; max-width: 100%; border-top: 1px solid #000; margin: 0 auto 8px; }
+.humana-signature-role { font-family: Arial, sans-serif; font-size: 14px; }
+.humana-badge { background: #e2e8f0; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; }
+.humana-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.humana-stat { background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 12px; border-radius: 10px; }
+.humana-stat .muted-text { margin: 0 0 4px; }
+.humana-input { width: 100%; padding: 10px 12px; border: 1px solid #cfd6dd; border-radius: 10px; box-sizing: border-box; font-size: 14px; font-family: inherit; }
+.humana-input:disabled { background: #f8fafc; color: #94a3b8; cursor: not-allowed; }
+@media (max-width: 900px) { .humana-layout { grid-template-columns: 1fr; } }
+</style>
+
+<div class="admin-tab-nav">
+  <button class="admin-tab active" data-tab="employees">Funcionários</button>
+  <button class="admin-tab" data-tab="humana">Declaração Humana</button>
+</div>
+
+<section class="card-elevated admin-card" id="tab-employees">
   <div class="admin-header">
     <div class="admin-title">
       <div class="admin-icon">ADM</div>
@@ -69,6 +102,77 @@
         </tr>
       </tbody>
     </table>
+  </div>
+</section>
+
+<section class="card-elevated admin-card" id="tab-humana" style="display:none;">
+  <div class="admin-header">
+    <div class="admin-title">
+      <div class="admin-icon">HUM</div>
+      <div>
+        <h2 class="page-title">Declaração Humana</h2>
+        <p class="muted-text">Gere declarações de pagamento Humana 2025.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="humana-error" style="display:none; background:#fee2e2; color:#991b1b; padding:10px 14px; border-radius:10px; font-size:14px; margin-bottom:4px;"></div>
+
+  <div class="humana-layout">
+    <div class="humana-sidebar">
+      <form id="humanaUploadForm">
+        <div class="field">
+          <label>Planilha base</label>
+          <div class="dropzone" id="humanaDropzone">
+            <span id="humanaDropzoneText">Clique para selecionar o arquivo</span>
+            <input type="file" id="humanaFile" name="arquivo" accept=".xlsx,.xls,.csv">
+          </div>
+          <p class="hint-text">Col. B = nome &nbsp;|&nbsp; G = valor pago &nbsp;|&nbsp; E = data do pagamento</p>
+          <p class="hint-text" id="humanaArquivoHint" style="font-weight:600;"></p>
+        </div>
+        <button type="submit" class="btn btn-primary">Carregar planilha</button>
+      </form>
+
+      <hr style="border:0; border-top:1px solid #e5e7eb; margin:2px 0;">
+
+      <div class="field">
+        <label>Nome da pessoa</label>
+        <input list="humanaNomes" id="humanaNome" type="text" class="humana-input"
+               placeholder="Digite ou selecione o nome" disabled>
+        <datalist id="humanaNomes"></datalist>
+      </div>
+
+      <div class="field">
+        <label>CPF</label>
+        <input type="text" id="humanaCpf" class="humana-input" maxlength="14" placeholder="000.000.000-00">
+      </div>
+
+      <button class="btn btn-outline" id="humanaUpdateBtn" disabled>Atualizar declaração</button>
+
+      <div class="humana-stats">
+        <div class="humana-stat">
+          <p class="muted-text">Pessoa selecionada</p>
+          <p style="margin:0;"><strong id="humanaNomeStat">—</strong></p>
+        </div>
+        <div class="humana-stat">
+          <p class="muted-text">Total em 2025</p>
+          <p style="margin:0;"><strong id="humanaTotalStat">—</strong></p>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="humanaPrintBtn" disabled>Imprimir / Salvar PDF</button>
+    </div>
+
+    <div class="card-elevated" style="padding:20px;">
+      <div class="humana-preview-header">
+        <div>
+          <h3 style="margin:0 0 4px;">Pré-visualização da declaração</h3>
+          <p class="muted-text">Documento em formato A4</p>
+        </div>
+        <span class="humana-badge">Ano-base 2025</span>
+      </div>
+      <div id="humanaPreviewDoc" class="humana-doc"></div>
+    </div>
   </div>
 </section>
 
@@ -1004,5 +1108,156 @@ buildSelects();
 applyDocTypeUI("uploadType", "uploadMonthField");
 applyDocTypeUI("bulkType", "bulkMonthField");
 loadEmployees();
+
+// =====================
+// ABAS
+// =====================
+document.querySelectorAll(".admin-tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".admin-tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    const tab = btn.dataset.tab;
+    document.getElementById("tab-employees").style.display = tab === "employees" ? "" : "none";
+    document.getElementById("tab-humana").style.display = tab === "humana" ? "" : "none";
+  });
+});
+
+// =====================
+// HUMANA
+// =====================
+const humanaState = { names: [], arquivo: "", selectedName: "", cpf: "", tableRows: [] };
+
+function humanaRenderPreview() {
+  const name = humanaState.selectedName;
+  const cpf = humanaState.cpf;
+  const headerUrl = "/static/img/cabecalho_agespisa.png";
+  const signatureUrl = "/static/img/assinatura_fabricio.png";
+
+  let tableHtml = "";
+  if (humanaState.tableRows && humanaState.tableRows.length > 0) {
+    const rowsHtml = humanaState.tableRows
+      .map(([month, value]) => `<tr><td>${month}</td><td>${value}</td></tr>`)
+      .join("");
+    tableHtml = `
+      <table class="humana-table">
+        <thead><tr><th>COMPETÊNCIA</th><th>VALOR (R$)</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>`;
+  }
+
+  document.getElementById("humanaPreviewDoc").innerHTML = `
+    <div class="humana-doc-header"><img src="${headerUrl}" alt="Cabeçalho AGESPISA"></div>
+    <div class="humana-doc-title">DECLARAÇÃO</div>
+    <p class="humana-text">
+      Declaramos para os devidos fins que <strong>${name || "&lt;nome da pessoa&gt;"}</strong>
+      com o CPF <strong>${cpf || "&lt;cpf da pessoa&gt;"}</strong>, ex-empregada desta empresa,
+      é beneficiária do Plano de Saúde Humana Assistência Médica Ltda. Pagou mensalmente no ano de 2025:
+    </p>
+    ${tableHtml}
+    <p class="humana-text">
+      Referente à beneficiária supracitada, conforme contrato celebrado entre a AGESPISA
+      e a HUMANA ASSISTÊNCIA MÉDICA LTDA para prestação de serviço de assistência à saúde.
+    </p>
+    <div class="humana-signature">
+      <img src="${signatureUrl}" alt="Assinatura digital">
+      <div class="humana-signature-line"></div>
+      <div class="humana-signature-role">Diretor Presidente</div>
+    </div>
+  `;
+}
+
+document.getElementById("humanaUploadForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const file = document.getElementById("humanaFile").files[0];
+  if (!file) { showHumanaError("Selecione um arquivo."); return; }
+  const form = new FormData();
+  form.append("arquivo", file);
+  try {
+    const res = await fetch("/humana/upload", { method: "POST", body: form });
+    const data = await res.json();
+    if (!data.ok) { showHumanaError(data.error || "Erro ao carregar."); return; }
+    humanaState.names = data.names || [];
+    humanaState.arquivo = data.arquivo || "";
+    document.getElementById("humanaArquivoHint").textContent = `Arquivo: ${data.arquivo}`;
+    document.getElementById("humanaDropzoneText").textContent = data.arquivo;
+    const datalist = document.getElementById("humanaNomes");
+    datalist.innerHTML = humanaState.names.map(n => `<option value="${n}"></option>`).join("");
+    document.getElementById("humanaNome").disabled = false;
+    document.getElementById("humanaUpdateBtn").disabled = false;
+    hideHumanaError();
+    showToast(`Planilha carregada: ${humanaState.names.length} pessoa(s) encontrada(s).`);
+  } catch {
+    showHumanaError("Erro de rede ao carregar a planilha.");
+  }
+});
+
+document.getElementById("humanaUpdateBtn").addEventListener("click", async () => {
+  const name = document.getElementById("humanaNome").value.trim();
+  humanaState.cpf = humanaFormatCpf(document.getElementById("humanaCpf").value.trim());
+  document.getElementById("humanaCpf").value = humanaState.cpf;
+
+  if (!name) {
+    humanaState.selectedName = "";
+    humanaState.tableRows = [];
+    document.getElementById("humanaNomeStat").textContent = "—";
+    document.getElementById("humanaTotalStat").textContent = "—";
+    document.getElementById("humanaPrintBtn").disabled = true;
+    humanaRenderPreview();
+    return;
+  }
+
+  try {
+    const res = await fetch(`/humana/person?nome=${encodeURIComponent(name)}`);
+    const data = await res.json();
+    if (!data.ok) { showHumanaError(data.error || "Pessoa não encontrada."); return; }
+    humanaState.selectedName = name;
+    humanaState.tableRows = data.table_rows || [];
+    document.getElementById("humanaNomeStat").textContent = name;
+    document.getElementById("humanaTotalStat").textContent = `R$ ${data.total}`;
+    document.getElementById("humanaPrintBtn").disabled = false;
+    hideHumanaError();
+    humanaRenderPreview();
+  } catch {
+    showHumanaError("Erro de rede ao buscar pessoa.");
+  }
+});
+
+document.getElementById("humanaPrintBtn").addEventListener("click", () => {
+  const name = humanaState.selectedName;
+  if (!name) return;
+  window.open(
+    `/humana/print?nome=${encodeURIComponent(name)}&cpf=${encodeURIComponent(humanaState.cpf || "")}`,
+    "_blank"
+  );
+});
+
+document.getElementById("humanaDropzone").addEventListener("click", () => {
+  document.getElementById("humanaFile").click();
+});
+
+document.getElementById("humanaFile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (file) document.getElementById("humanaDropzoneText").textContent = file.name;
+});
+
+function humanaFormatCpf(value) {
+  const d = (value || "").replace(/\D/g, "").slice(0, 11);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0,3)}.${d.slice(3)}`;
+  if (d.length <= 9) return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`;
+  return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9,11)}`;
+}
+
+function showHumanaError(msg) {
+  const el = document.getElementById("humana-error");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+function hideHumanaError() {
+  document.getElementById("humana-error").style.display = "none";
+}
+
+humanaRenderPreview();
 </script>
 {% endblock %}

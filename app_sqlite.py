@@ -15,6 +15,8 @@ from flask import (
 )
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv; load_dotenv()
+from collections import defaultdict
+import pandas as pd
 
 # =========================
 # CONFIGURAÇÕES
@@ -1188,6 +1190,169 @@ def api_admin_payslips_upload():
     finally:
         cur.close()
         conn.close()
+
+# =========================
+# HUMANA DECLARATION
+# =========================
+_HUMANA_DATA: dict = {}
+_HUMANA_ARQUIVO: str = ""
+_MONTHS_HUMANA = [f"{str(i).zfill(2)}/2025" for i in range(1, 13)]
+_HUMANA_HEADER = "img/cabecalho_agespisa.png"
+_HUMANA_SIGNATURE = "img/assinatura_fabricio.png"
+
+
+def _hum_normalize(value: str) -> str:
+    value = str(value or "").strip().upper()
+    return re.sub(r"\s+", " ", value)
+
+
+def _hum_parse_money(value) -> float:
+    if pd.isna(value):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace(".", "").replace(",", ".")
+    text = re.sub(r"[^\d\.-]", "", text)
+    try:
+        return float(text)
+    except ValueError:
+        return 0.0
+
+
+def _hum_parse_date(value):
+    if pd.isna(value):
+        return None
+    if isinstance(value, datetime):
+        return value
+    if hasattr(value, "to_pydatetime"):
+        return value.to_pydatetime()
+    text = str(value).strip()
+    if not text:
+        return None
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            pass
+    parsed = pd.to_datetime(value, dayfirst=True, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.to_pydatetime()
+
+
+def _hum_format_money(value: float) -> str:
+    return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _hum_format_cpf(value: str) -> str:
+    digits = re.sub(r"\D", "", str(value or ""))[:11]
+    if len(digits) <= 3:
+        return digits
+    if len(digits) <= 6:
+        return f"{digits[:3]}.{digits[3:]}"
+    if len(digits) <= 9:
+        return f"{digits[:3]}.{digits[3:6]}.{digits[6:]}"
+    return f"{digits[:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:11]}"
+
+
+def _hum_build_data(df: pd.DataFrame) -> dict:
+    grouped: dict = {}
+    for _, row in df.iterrows():
+        try:
+            name = row.iloc[1]
+            amount_raw = row.iloc[6]
+            date_raw = row.iloc[4]
+        except IndexError:
+            continue
+        if pd.isna(name):
+            continue
+        name = str(name).strip()
+        normalized = _hum_normalize(name)
+        if not normalized:
+            continue
+        amount = _hum_parse_money(amount_raw)
+        payment_date = _hum_parse_date(date_raw)
+        if not payment_date:
+            continue
+        if payment_date.year != 2025:
+            continue
+        month_key = payment_date.strftime("%m/%Y")
+        if month_key not in _MONTHS_HUMANA:
+            continue
+        if normalized not in grouped:
+            grouped[normalized] = {"name": name, "payments": defaultdict(float)}
+        grouped[normalized]["payments"][month_key] += amount
+
+    result = {}
+    for person in grouped.values():
+        payments = {m: round(person["payments"].get(m, 0.0), 2) for m in _MONTHS_HUMANA}
+        result[person["name"]] = {"name": person["name"], "payments": payments}
+    return dict(sorted(result.items()))
+
+
+def _hum_get_table(name: str):
+    person = _HUMANA_DATA.get(name)
+    if not person:
+        return None, [], 0.0
+    rows = []
+    total = 0.0
+    for month in _MONTHS_HUMANA:
+        value = float(person["payments"].get(month, 0.0))
+        if value > 0:
+            total += value
+            rows.append((month, _hum_format_money(value)))
+    return person, rows, total
+
+
+@app.route("/humana/upload", methods=["POST"])
+@admin_required
+def humana_upload():
+    global _HUMANA_DATA, _HUMANA_ARQUIVO
+    file = request.files.get("arquivo")
+    if not file or not file.filename:
+        return jsonify(ok=False, error="Selecione um arquivo Excel ou CSV."), 400
+    filename = file.filename.lower()
+    try:
+        if filename.endswith(".csv"):
+            df = pd.read_csv(file, header=None)
+        else:
+            df = pd.read_excel(file, header=None)
+    except Exception as exc:
+        return jsonify(ok=False, error=f"Erro ao ler a planilha: {exc}"), 400
+    _HUMANA_DATA = _hum_build_data(df)
+    _HUMANA_ARQUIVO = file.filename
+    if not _HUMANA_DATA:
+        return jsonify(ok=False, error="Nenhum registro válido de 2025 foi encontrado."), 400
+    return jsonify(ok=True, names=list(_HUMANA_DATA.keys()), arquivo=file.filename)
+
+
+@app.route("/humana/person", methods=["GET"])
+@admin_required
+def humana_person():
+    name = request.args.get("nome", "").strip()
+    person, table_rows, total = _hum_get_table(name)
+    if not person:
+        return jsonify(ok=False, error="Pessoa não encontrada."), 404
+    return jsonify(ok=True, name=name, table_rows=table_rows, total=_hum_format_money(total))
+
+
+@app.route("/humana/print", methods=["GET"])
+@admin_required
+def humana_print():
+    name = request.args.get("nome", "").strip()
+    cpf = _hum_format_cpf(request.args.get("cpf", "").strip())
+    person, table_rows, _ = _hum_get_table(name)
+    if not person:
+        return "Pessoa não encontrada. Volte e selecione um nome válido.", 400
+    return render_template(
+        "humana_print.html",
+        selected_name=name,
+        cpf=cpf or "<cpf da pessoa>",
+        table_rows=table_rows,
+        header_url=url_for("static", filename=_HUMANA_HEADER, _external=True),
+        signature_url=url_for("static", filename=_HUMANA_SIGNATURE, _external=True),
+    )
+
 
 # =========================
 # MAIN
