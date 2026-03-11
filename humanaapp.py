@@ -12,7 +12,7 @@ app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
 MONTHS_2025 = [f"{str(i).zfill(2)}/2025" for i in range(1, 13)]
 PEOPLE_DATA = {}
 HEADER_IMAGE = "img/cabecalho_agespisa.png"
-SIGNATURE_IMAGE = "img/assinatura_garcias.png"
+SIGNATURE_IMAGE = "img/assinatura_fabricio.png"
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -307,7 +307,7 @@ HTML_TEMPLATE = """
                 <div class="signature-block">
                     <img src="{{ signature_url }}" alt="Assinatura digital">
                     <div class="signature-line"></div>
-                    <div class="signature-role">Diretor Presidente</div>
+                    <div class="signature-role">Diretor Financeiro</div>
                 </div>
             </div>
         </div>
