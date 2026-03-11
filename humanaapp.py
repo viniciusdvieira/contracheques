@@ -431,7 +431,7 @@ PRINT_TEMPLATE = """
         <div class="signature-block">
             <img src="{{ signature_url }}" alt="Assinatura digital">
             <div class="signature-line"></div>
-            <div class="signature-role">Diretor Presidente</div>
+            <div class="signature-role">Diretor Financeiro</div>
         </div>
     </div>
 </body>
